@@ -16,8 +16,36 @@ jobs:
           - macOS-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
+      
+      - name: Debug build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      
+      - name: Release build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      
+      - name: Check formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+          
+      - name: Run linter
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
