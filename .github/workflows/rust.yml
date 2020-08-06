@@ -36,7 +36,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --release --verbose
       
       - name: Check formatting
         uses: actions-rs/cargo@v1
