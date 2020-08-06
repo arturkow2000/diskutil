@@ -347,7 +347,7 @@ impl<'a> Gpt<'a> {
         }
 
         for i in 0..self.partition_table_entries_num as usize {
-            if let Some(partition) = self.partitions.get(i).map_or(None, |x| x.as_ref()) {
+            if let Some(partition) = self.partitions.get(i).and_then(|x| x.as_ref()) {
                 let start_position = cursor.position();
 
                 write_guid_hash(&mut cursor, &mut crc32, partition.type_guid).unwrap();
@@ -423,7 +423,7 @@ impl<'a> Gpt<'a> {
         debug_assert_eq!(cursor.position(), GPT_HEADER_SIZE as u64);
         if !self.header_additional_data.is_empty() {
             cursor
-                .write(self.header_additional_data.as_slice())
+                .write_all(self.header_additional_data.as_slice())
                 .unwrap();
             Hasher::write(&mut crc32, self.header_additional_data.as_slice());
         }
@@ -438,13 +438,14 @@ impl<'a> Gpt<'a> {
 
         let header = cursor.into_inner();
 
+        // TODO: check if contiguous and use write_all_vectored if possible
         self.disk
             .seek(SeekFrom::Start(self.current_lba * sector_size as u64))?;
-        self.disk.write(header.as_slice())?;
+        self.disk.write_all(header.as_slice())?;
         self.disk.seek(SeekFrom::Start(
             self.partition_table_start * sector_size as u64,
         ))?;
-        self.disk.write(partition_table_buffer.as_slice())?;
+        self.disk.write_all(partition_table_buffer.as_slice())?;
 
         Ok(())
     }
@@ -526,7 +527,7 @@ where
     writer.write_u32::<LittleEndian>(p0)?;
     writer.write_u16::<LittleEndian>(p1)?;
     writer.write_u16::<LittleEndian>(p2)?;
-    writer.write(&p3[..])?;
+    writer.write_all(&p3[..])?;
 
     hasher.write_u32(p0);
     hasher.write_u16(p1);

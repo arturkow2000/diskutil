@@ -89,6 +89,7 @@ impl Default for Footer {
     }
 }
 
+#[allow(clippy::transmute_ptr_to_ptr)]
 impl Footer {
     #[inline]
     pub fn features(&self) -> u32 {

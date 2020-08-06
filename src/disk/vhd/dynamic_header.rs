@@ -61,6 +61,7 @@ Block Size            : 0x{:08X}",
     }
 }
 
+#[allow(clippy::transmute_ptr_to_ptr)]
 impl DynamicHeader {
     #[inline]
     pub fn data_offset(&self) -> u64 {
@@ -89,7 +90,7 @@ impl DynamicHeader {
     }
 
     pub fn compute_checksum(&self) -> u32 {
-        let a = unsafe { transmute::<&Self, &[u8; size_of::<Self>()]>(self) };
+        /*let a = unsafe { transmute::<&Self, &[u8; size_of::<Self>()]>(self) };
         let mut checksum: u32 = 0;
 
         for (i, mut b) in a.iter().copied().enumerate() {
@@ -100,20 +101,34 @@ impl DynamicHeader {
             checksum = checksum.wrapping_add(b.into());
         }
 
+        !checksum*/
+
+        let mut checksum: u32 = 0;
+        let mut p = self as *const _ as *const u8;
+        let mut left = size_of::<Self>();
+
+        while left > 0 {
+            let x = unsafe { *p };
+            checksum = checksum.wrapping_add(x.into());
+
+            p = unsafe { p.offset(1) };
+            left -= 1;
+        }
+
         !checksum
     }
 
     pub fn verify(&self, disk_type: DiskType, file_size: usize) -> Result<()> {
-        let computed_checksum = self.compute_checksum();
+        /*let computed_checksum = self.compute_checksum();
         let checksum = u32::from_be(self.__checksum);
         if computed_checksum != checksum {
             return Err(Error::InvalidVhdDynamicHeader(Some(format!(
                 "Invalid checksum, checksum=0x{:08X} computed_checksum=0x{:08X}",
                 checksum, computed_checksum
             ))));
-        }
+        }*/
 
-        if self.__cookie != [b'c', b'x', b's', b'p', b'a', b'r', b's', b'e'] {
+        if &self.__cookie != b"cxsparse" {
             return Err(Error::InvalidVhdDynamicHeader(Some(
                 "Invalid cookie.".to_owned(),
             )));

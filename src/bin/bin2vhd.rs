@@ -41,7 +41,7 @@ fn main() -> Result<()> {
         if n == 0 {
             break;
         }
-        vhd.write_all(&mut buf[..n])?;
+        vhd.write_all(&buf[..n])?;
     }
 
     Ok(())

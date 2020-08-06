@@ -29,7 +29,7 @@ fn main() -> Result<()> {
         if n == 0 {
             break;
         }
-        output.write_all(&mut buf[..n])?;
+        output.write_all(&buf[..n])?;
     }
 
     Ok(())

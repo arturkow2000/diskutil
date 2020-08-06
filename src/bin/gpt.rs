@@ -32,7 +32,7 @@ fn setup_logging(matches: &ArgMatches) {
             let level = record.level();
 
             let prefix = format!("[{}][{}]\x1b[{}m ", target, level, foreground);
-            const SUFFIX: &'static str = "\x1b[0m";
+            const SUFFIX: &str = "\x1b[0m";
 
             let s = format!("{}", message);
             let mut string_len = 0;

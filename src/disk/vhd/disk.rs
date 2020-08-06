@@ -27,12 +27,14 @@ where
     free_data_block_offset: u64,
 }
 
-// TODO: could use write_all_vectored to increase performance https://github.com/rust-lang/rust/issues/70436
+// FIXME: this needs rewrite into safer code
+#[allow(clippy::transmute_ptr_to_ptr)]
 impl<B> VhdDisk<B>
 where
     B: Read + Seek + Write,
 {
     pub fn open(backend: B) -> Result<Self> {
+        #[allow(clippy::uninit_assumed_init)]
         let mut this = Self {
             backend,
             footer: unsafe { MaybeUninit::uninit().assume_init() },
@@ -67,8 +69,8 @@ where
 
         debug!("{}", this.dynamic_header);
 
-        //this.dynamic_header
-        //    .verify(this.footer.disk_type(), file_size)?;
+        this.dynamic_header
+            .verify(this.footer.disk_type(), file_size)?;
 
         this.backend
             .seek(SeekFrom::Start(this.dynamic_header.bat_offset()))?;
@@ -146,7 +148,7 @@ where
             backend.write_all(bat_u8s)?;
 
             if bat_u8s.len() % SECTOR_SIZE as usize != 0 {
-                let padding_len = (bat_u8s.len() + 511 & !511) - bat_u8s.len();
+                let padding_len = ((bat_u8s.len() + 511) & !511) - bat_u8s.len();
                 let mut padding: Vec<u8> = Vec::new();
                 padding.resize_with(padding_len, || 0xff);
                 backend.write_all(padding.as_slice())?;
@@ -299,17 +301,16 @@ where
 
             if let Some(offset_in_file) = self.get_offset(self.cursor, true)? {
                 if !is_zero {
+                    #[allow(clippy::redundant_closure)]
                     let offset_in_file =
                         offset_in_file.map_or_else(|| self.alloc_block(self.cursor), |x| Ok(x))?;
                     self.backend.seek(SeekFrom::Start(offset_in_file))?;
                     self.backend
                         .write_all(&buf[total_written..total_written + n])?;
-                } else {
-                    if let Some(offset_in_file) = offset_in_file {
-                        self.backend.seek(SeekFrom::Start(offset_in_file))?;
-                        self.backend
-                            .write_all(&buf[total_written..total_written + n])?;
-                    }
+                } else if let Some(offset_in_file) = offset_in_file {
+                    self.backend.seek(SeekFrom::Start(offset_in_file))?;
+                    self.backend
+                        .write_all(&buf[total_written..total_written + n])?;
                 }
             } else {
                 break;
