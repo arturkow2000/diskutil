@@ -32,7 +32,6 @@ impl Footer {
         let mut reader = Cursor::new(buffer);
 
         let mut temp_buffer = u8_array_uninitialized!(16);
-        #[cfg(debug_assertions)]
         let mut computed_checksum = 0u32;
 
         let compute_checksum = |checksum: &mut u32, b: &[u8]| {

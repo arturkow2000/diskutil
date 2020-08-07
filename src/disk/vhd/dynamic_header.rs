@@ -32,8 +32,6 @@ impl DynamicHeader {
 
         let mut reader = Cursor::new(buffer);
         let mut temp_buffer = u8_array_uninitialized!(16);
-        #[cfg(debug_assertions)]
-        let mut total_read = 0usize;
         let mut computed_checksum = 0u32;
 
         let compute_checksum = |checksum: &mut u32, b: &[u8]| {
@@ -46,30 +44,18 @@ impl DynamicHeader {
             (u8) => {{
                 reader.read_exact(&mut temp_buffer[..1])?;
                 compute_checksum(&mut computed_checksum, &temp_buffer[..1]);
-                #[cfg(debug_assertions)]
-                {
-                    total_read += 1;
-                }
                 temp_buffer[0]
             }};
             ($type:ty) => {{
                 let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
                 reader.read_exact(s)?;
                 compute_checksum(&mut computed_checksum, s);
-                #[cfg(debug_assertions)]
-                {
-                    total_read += ::std::mem::size_of::<$type>();
-                }
                 <$type>::from_be_bytes((*s).try_into().unwrap())
             }};
             ($type:ty, native) => {{
                 let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
                 reader.read_exact(s)?;
                 compute_checksum(&mut computed_checksum, s);
-                #[cfg(debug_assertions)]
-                {
-                    total_read += ::std::mem::size_of::<$type>();
-                }
                 <$type>::from_ne_bytes((*s).try_into().unwrap())
             }};
             ($type:ty, nohash) => {{
@@ -77,20 +63,12 @@ impl DynamicHeader {
                 reader.read_exact(s)?;
                 let z = [0u8; ::std::mem::size_of::<$type>()];
                 compute_checksum(&mut computed_checksum, &z[..]);
-                #[cfg(debug_assertions)]
-                {
-                    total_read += ::std::mem::size_of::<$type>();
-                }
                 <$type>::from_be_bytes((*s).try_into().unwrap())
             }};
             ($size:expr) => {{
                 let mut b = u8_array_uninitialized!($size);
                 reader.read_exact(&mut b[..])?;
                 compute_checksum(&mut computed_checksum, &b[..]);
-                #[cfg(debug_assertions)]
-                {
-                    total_read += $size;
-                }
                 b
             }};
         }
@@ -122,7 +100,7 @@ impl DynamicHeader {
         let parent_locator_entry_8 = read!(24);
         let reserved2 = read!(256);
 
-        debug_assert_eq!(total_read, Self::SIZE);
+        debug_assert_eq!(reader.position(), Self::SIZE as u64);
 
         computed_checksum = !computed_checksum;
 
