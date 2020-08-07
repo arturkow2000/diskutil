@@ -1,226 +1,155 @@
-use crate::{disk::vhd::DiskType, Error, Result};
+use crate::disk::vhd::DiskType;
+use crate::{u8_array_uninitialized, Error, Result};
 use chrono::prelude::*;
-use std::mem::{size_of, transmute, zeroed};
-use std::{fmt, slice, str};
+use std::convert::{TryFrom, TryInto};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::time::SystemTime;
+use std::{fmt, str};
+use uuid::Uuid;
 
-#[derive(Debug)]
-#[allow(non_camel_case_types)]
-pub enum CreatorHostOs {
-    Unknown(u32),
-    Windows,
-    macOS,
-}
-
-impl From<u32> for CreatorHostOs {
-    fn from(x: u32) -> Self {
-        match x {
-            0x5769326B => Self::Windows,
-            0x4D616320 => Self::macOS,
-            x => Self::Unknown(x),
-        }
-    }
-}
-
-#[repr(C)]
 pub struct Footer {
-    pub __cookie: [u8; 8],
-    // bit 0 => temporary
-    // bit 1 => reserved must be 1
-    pub __features: u32,
-    pub __version: u32,
-    pub __data_offset: u64,
-    pub __time_stamp: u32,
-    pub __creator_app: [u8; 4],
-    pub __creator_version: u32,
-    pub __creator_host_os: u32,
-    pub __original_size: u64,
-    pub __current_size: u64,
-    pub __disk_geometry: u32,
-    pub __disk_type: u32,
-    pub __checksum: u32,
-    pub __uuid: [u8; 16],
-    pub __saved_state: u8,
-    pub __reserved: [u8; 427],
+    pub features: u32,
+    pub version: u32,
+    pub data_offset: u64,
+    pub time_stamp: u32,
+    pub creator_app: [u8; 4],
+    pub creator_version: u32,
+    pub creator_host_os: [u8; 4],
+    pub original_size: u64,
+    pub current_size: u64,
+    pub disk_geometry: u32,
+    pub disk_type: DiskType,
+    pub uuid: Uuid,
+    pub saved_state: u8,
+    pub reserved: [u8; 427],
 }
-
-#[inline(always)]
-fn __test_size() {
-    unsafe { transmute::<[u8; 512], Footer>([0u8; 512]) };
-}
-
-impl fmt::Display for Footer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let chs_to_string = |(c, h, s)| -> String { format!("{} {} {}", c, h, s) };
-        write!(
-            f,
-            "Cookie           : {}
-Features         : 0x{:08X}
-Version          : {}.{}
-Data Offset      : 0x{:08X}
-Creation Date    : {}
-Creator          : {}
-Creator Version  : {}.{}
-Creator Host OS  : {:?}
-Original Size    : 0x{:08X}
-Current Size     : 0x{:08X}
-CHS              : {}
-Disk Type        : {:?}",
-            str::from_utf8(&self.__cookie).unwrap_or("<invalid>"),
-            self.features(),
-            self.version().0,
-            self.version().1,
-            self.data_offset(),
-            self.time_stamp_to_date(),
-            str::from_utf8(&self.__creator_app).unwrap_or("<invalid>"),
-            self.creator_version().0,
-            self.creator_version().1,
-            self.creator_host_os(),
-            self.original_size(),
-            self.current_size(),
-            chs_to_string(self.chs()),
-            self.disk_type()
-        )
-    }
-}
-
-impl Default for Footer {
-    fn default() -> Self {
-        unsafe { zeroed() }
-    }
-}
-
-#[allow(clippy::transmute_ptr_to_ptr)]
 impl Footer {
-    #[inline]
-    pub fn features(&self) -> u32 {
-        u32::from_be(self.__features)
-    }
-    #[inline]
-    pub fn version(&self) -> (u16, u16) {
-        let v = u32::from_be(self.__version);
-        ((v >> 16) as u16, (v & 0xFFFF) as u16)
-    }
+    pub const SIZE: usize = 512;
 
-    #[inline]
-    pub fn data_offset(&self) -> u64 {
-        u64::from_be(self.__data_offset)
-    }
+    pub fn decode(buffer: &[u8]) -> Result<Self> {
+        debug_assert_eq!(buffer.len(), Self::SIZE);
 
-    #[inline]
-    pub fn time_stamp(&self) -> u32 {
-        u32::from_be(self.__time_stamp)
-    }
+        let mut reader = Cursor::new(buffer);
 
-    #[inline]
-    pub fn time_stamp_to_date(&self) -> DateTime<Local> {
-        Local.timestamp(self.time_stamp() as i64 + 946684800, 0)
-    }
+        let mut temp_buffer = u8_array_uninitialized!(16);
+        #[cfg(debug_assertions)]
+        let mut computed_checksum = 0u32;
 
-    #[inline]
-    pub fn creator_version(&self) -> (u16, u16) {
-        let v = u32::from_be(self.__creator_version);
-        ((v >> 16) as u16, (v & 0xFFFF) as u16)
-    }
-
-    #[inline]
-    pub fn creator_host_os(&self) -> CreatorHostOs {
-        CreatorHostOs::from(u32::from_be(self.__creator_host_os))
-    }
-
-    #[inline]
-    pub fn original_size(&self) -> u64 {
-        u64::from_be(self.__original_size)
-    }
-
-    #[inline]
-    pub fn current_size(&self) -> u64 {
-        u64::from_be(self.__current_size)
-    }
-
-    #[inline]
-    pub fn chs(&self) -> (u16, u8, u8) {
-        let c = u16::from_be(((self.__disk_geometry & 0xFFFF0000) >> 16) as u16);
-        let h = ((self.__disk_geometry & 0xFF00) >> 8) as u8;
-        let s = (self.__disk_geometry & 0xFF) as u8;
-
-        (c, h, s)
-    }
-
-    #[inline]
-    pub fn disk_type(&self) -> DiskType {
-        DiskType::from(u32::from_be(self.__disk_type))
-    }
-
-    pub fn compute_checksum(&self) -> u32 {
-        let a = unsafe { transmute::<&Self, &[u8; size_of::<Self>()]>(self) };
-        let mut checksum: u32 = 0;
-
-        for (i, mut b) in a.iter().copied().enumerate() {
-            if i & !0b11 == 64 {
-                b = 0;
+        let compute_checksum = |checksum: &mut u32, b: &[u8]| {
+            for x in b.iter().copied() {
+                *checksum = checksum.wrapping_add(x.into())
             }
-
-            checksum = checksum.wrapping_add(b.into());
-        }
-
-        !checksum
-    }
-
-    pub fn verify(&self, file_size: usize) -> Result<()> {
-        let computed_checksum = self.compute_checksum();
-        let checksum = u32::from_be(self.__checksum);
-        if computed_checksum != checksum {
-            return Err(Error::InvalidVhdFooter(Some(format!(
-                "Invalid checksum, checksum=0x{:08X} computed_checksum=0x{:08X}",
-                checksum, computed_checksum
-            ))));
-        }
-
-        if self.features() & 2 == 0 {
-            return Err(Error::InvalidVhdFooter(None));
-        }
-
-        let version = self.version();
-        if version.0 != 1 {
-            return Err(Error::InvalidVhdFooter(Some(format!(
-                "Unsupported version, expected 1.x got {}.{}.",
-                version.0, version.1
-            ))));
-        }
-
-        let disk_type = self.disk_type();
-        match disk_type {
-            DiskType::Unknown(x) => {
-                return Err(Error::InvalidVhdFooter(Some(format!(
-                    "Unknown disk type {:#X}.",
-                    x
-                ))))
-            }
-            DiskType::None => {
-                return Err(Error::InvalidVhdFooter(Some(
-                    "Disk type \"none\" not supported.".to_owned(),
-                )))
-            }
-            _ => (),
         };
 
-        if disk_type == DiskType::Fixed {
-            if self.__data_offset != 0xFFFFFFFF {
-                return Err(Error::InvalidVhdFooter(Some(
-                    "Invalid data_offset, for fixed disks should be 0xFFFFFFFF.".to_owned(),
-                )));
-            }
-        } else {
-            let offset = self.data_offset() as usize;
-            if offset > file_size {
-                return Err(Error::InvalidVhdFooter(Some(format!(
-                    "Data offset points past end of file ({} > {})",
-                    offset, file_size
-                ))));
-            }
+        macro_rules! read {
+            (u8) => {{
+                reader.read_exact(&mut temp_buffer[..1])?;
+                compute_checksum(&mut computed_checksum, &temp_buffer[..1]);
+                temp_buffer[0]
+            }};
+            ($type:ty) => {{
+                let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
+                reader.read_exact(s)?;
+                compute_checksum(&mut computed_checksum, s);
+                <$type>::from_be_bytes((*s).try_into().unwrap())
+            }};
+            ($type:ty, native) => {{
+                let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
+                reader.read_exact(s)?;
+                compute_checksum(&mut computed_checksum, s);
+                <$type>::from_ne_bytes((*s).try_into().unwrap())
+            }};
+            ($type:ty, nohash) => {{
+                let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
+                reader.read_exact(s)?;
+                let z = [0u8; ::std::mem::size_of::<$type>()];
+                compute_checksum(&mut computed_checksum, &z[..]);
+                <$type>::from_be_bytes((*s).try_into().unwrap())
+            }};
+            ($size:expr) => {{
+                let mut b = u8_array_uninitialized!($size);
+                reader.read_exact(&mut b[..])?;
+                compute_checksum(&mut computed_checksum, &b[..]);
+                b
+            }};
         }
 
-        Ok(())
+        let cookie = read!(8);
+        if &cookie != b"conectix" {
+            return Err(Error::InvalidVhdFooter(Some("Invalid cookie".to_owned())));
+        }
+
+        let features = read!(u32);
+        let version = read!(u32);
+        let data_offset = read!(u64);
+        let time_stamp = read!(u32);
+        let creator_app = read!(4);
+        let creator_version = read!(u32);
+        let creator_host_os = read!(4);
+        let original_size = read!(u64);
+        let current_size = read!(u64);
+        let disk_geometry = read!(u32);
+        let disk_type = DiskType::try_from(read!(u32))?;
+        let checksum = read!(u32, nohash);
+        let uuid = Uuid::from_u128(read!(u128, native));
+        let saved_state = read!(u8);
+        let reserved = read!(427);
+
+        debug_assert_eq!(reader.position(), Self::SIZE as u64);
+
+        computed_checksum = !computed_checksum;
+
+        if checksum != computed_checksum {
+            return Err(Error::InvalidVhdFooter(Some(format!(
+                "Checksum mismatch, computed 0x{:08X} but the checksum is 0x{:08X}",
+                computed_checksum, checksum
+            ))));
+        }
+
+        Ok(Self {
+            features,
+            version,
+            data_offset,
+            time_stamp,
+            creator_app,
+            creator_version,
+            creator_host_os,
+            original_size,
+            current_size,
+            disk_geometry,
+            disk_type,
+            uuid,
+            saved_state,
+            reserved,
+        })
+    }
+
+    pub fn create(disk_type: DiskType, max_sectors: usize) -> Self {
+        let total_size = max_sectors as u64 * 512;
+        let (c, h, s) = Self::compute_chs(max_sectors);
+        let disk_geometry = ((s as u32) << 24) | ((h as u32) << 16) | (c as u32);
+
+        Self {
+            features: 2,
+            version: 0x10000,
+            data_offset: match disk_type {
+                DiskType::Dynamic | DiskType::Differencing => 512,
+                DiskType::Fixed => 0xFFFFFFFFFFFFFFFFu64,
+            },
+            time_stamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map_or(0, |x| (x.as_secs() - 946684800).try_into().unwrap_or(0)),
+            creator_app: *b"rvd ",
+            creator_version: 1u32,
+            creator_host_os: *b"Wi2k",
+            original_size: total_size,
+            current_size: total_size,
+            disk_geometry,
+            disk_type,
+            uuid: Uuid::new_v4(),
+            saved_state: 0,
+            reserved: [0; 427],
+        }
     }
 
     fn compute_chs(mut total_sectors: usize) -> (u16, u8, u8) {
@@ -261,38 +190,162 @@ impl Footer {
         (cylinders as u16, heads as u8, sectors_per_track as u8)
     }
 
-    pub fn create(disk_type: DiskType, max_sectors: usize) -> Self {
-        let total_size = max_sectors as u64 * 512;
+    pub fn encode(&self, buf: &mut [u8]) {
+        let mut cursor = Cursor::new(buf);
+        let mut checksum: u32 = 0;
 
-        let mut this = Self::default();
-        this.__cookie
-            .copy_from_slice(&[b'c', b'o', b'n', b'e', b'c', b't', b'i', b'x']);
-        this.__creator_app
-            .copy_from_slice(&[b'r', b'v', b'd', b' ']);
-        this.__creator_host_os = u32::to_be(0x5769326B);
-        this.__features = u32::to_be(2);
-        this.__version = u32::to_be(0x00010000);
-        if disk_type == DiskType::Dynamic || disk_type == DiskType::Differencing {
-            this.__data_offset = u64::to_be(512);
-        } else {
-            this.__data_offset = 0xFFFFFFFFFFFFFFFFu64;
+        let compute_checksum = |checksum: &mut u32, b: &[u8]| {
+            for x in b.iter().copied() {
+                *checksum = checksum.wrapping_add(x.into())
+            }
+        };
+
+        macro_rules! write {
+            ($data:expr, array) => {{
+                compute_checksum(&mut checksum, $data);
+                cursor.write_all($data).unwrap();
+            }};
+            ($data:expr) => {{
+                let x = $data.to_be_bytes();
+                compute_checksum(&mut checksum, &x);
+                cursor.write_all(&x).unwrap();
+            }};
         }
-        this.__creator_version = u32::to_be((5u32 << 16) | (3u32));
-        this.__original_size = u64::to_be(total_size);
-        this.__current_size = u64::to_be(total_size);
-        this.__disk_type = u32::to_be(disk_type.into());
 
-        let (c, h, s) = Self::compute_chs(max_sectors);
-        this.__disk_geometry = ((u16::to_be(c) as u32) << 16) | (h as u32) << 8 | s as u32;
+        write!(b"conectix", array);
+        write!(self.features);
+        write!(self.version);
+        write!(self.data_offset);
+        write!(self.time_stamp);
+        write!(&self.creator_app, array);
+        write!(self.creator_version);
+        write!(&self.creator_host_os, array);
+        write!(self.original_size);
+        write!(self.current_size);
+        write!(self.disk_geometry);
+        write!(self.disk_type as u32);
+        let p = cursor.position();
+        write!(0u32);
+        write!(self.uuid.as_u128());
+        write!(&[self.saved_state], array);
+        write!(&self.reserved, array);
 
-        // TODO: timestamp and uuid
+        debug_assert_eq!(cursor.position(), Footer::SIZE as u64);
 
-        this.__checksum = u32::to_be(this.compute_checksum());
+        checksum = !checksum;
+        cursor.seek(SeekFrom::Start(p)).unwrap();
+        write!(checksum);
+    }
+}
 
-        this
+impl fmt::Display for Footer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Features              : 0x{:08X}
+Version               : 0x{:08X}
+Data Offset           : 0x{:016X}
+Creation Date         : {}
+Creator               : {}
+Creator Version       : 0x{:08X}
+Creator Host OS       : {}
+Original Size         : 0x{:016X}
+Current Size          : 0x{:016X}
+Disk Type             : {:?}
+UUID                  : {{{}}}",
+            self.features,
+            self.version,
+            self.data_offset,
+            Local.timestamp(self.time_stamp as i64 + 946684800, 0),
+            str::from_utf8(&self.creator_app).unwrap_or("<invalid>"),
+            self.creator_version,
+            str::from_utf8(&self.creator_host_os).map_or_else(
+                |_| format!("0x{:08X}", u32::from_be_bytes(self.creator_host_os)),
+                |x| x.to_owned()
+            ),
+            self.original_size,
+            self.current_size,
+            self.disk_type,
+            self.uuid
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Footer;
+    use crate::disk::vhd::DiskType;
+    use std::str::FromStr;
+    use uuid::Uuid;
+
+    static FOOTER: [u8; Footer::SIZE] = [
+        0x63, 0x6f, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x78, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72, 0x76,
+        0x64, 0x20, 0x00, 0x05, 0x00, 0x03, 0x57, 0x69, 0x32, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x02,
+        0xb0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xb0, 0x00, 0x00, 0x11, 0x06, 0x03, 0x5f,
+        0x00, 0x00, 0x00, 0x03, 0xff, 0xff, 0xf7, 0xec, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ];
+
+    #[test]
+    fn test_decode() {
+        crate::tests_init();
+
+        let footer = Footer::decode(&FOOTER).unwrap();
+        assert_eq!(footer.features, 2);
+        assert_eq!(footer.version, 0x10000);
+        assert_eq!(footer.data_offset, 512);
+        // TODO: time stamp check
+        assert_eq!(&footer.creator_app, b"rvd ");
+        assert_eq!(footer.creator_version, (5u32 << 16) | 3u32);
+        assert_eq!(&footer.creator_host_os, b"Wi2k");
+        assert_eq!(footer.original_size, 45088768);
+        assert_eq!(footer.current_size, 45088768);
+        assert_eq!(footer.disk_type, DiskType::Dynamic);
+        assert_eq!(
+            footer.uuid,
+            Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap()
+        );
+        assert_eq!(footer.saved_state, 0);
+        assert_eq!(footer.reserved, [0; 427]);
     }
 
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(self as *const _ as *const u8, size_of::<Self>()) }
+    #[test]
+    fn test_encode() {
+        crate::tests_init();
+
+        let footer = Footer::decode(&FOOTER).unwrap();
+        let mut buffer = [0u8; Footer::SIZE];
+        footer.encode(&mut buffer[..]);
+        assert_eq!(buffer, FOOTER);
     }
 }

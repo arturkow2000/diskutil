@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate clap;
+extern crate better_panic;
 extern crate diskutil;
 extern crate fern;
 extern crate log;
@@ -111,6 +112,7 @@ fn get_subcommand_handler(command: &str) -> &'static dyn Fn(&mut Gpt, Option<&Ar
 }
 
 fn main() -> Result<()> {
+    better_panic::install();
     let matches = clap_app!(partdump =>
         (@arg file: +required)
         (@arg format: -f --format +required +takes_value "Select disk format, currently supported formats: RAW, VHD")
@@ -145,7 +147,7 @@ fn main() -> Result<()> {
         get_subcommand_handler(subcommand)
     };
 
-    let mut gpt = Gpt::load(disk.as_mut(), ErrorAction::Abort)?;
+    let mut gpt = Gpt::load(disk.as_mut(), ErrorAction::Abort).expect("Failed to read GPT");
 
     handler(&mut gpt, subcommand_matches);
 

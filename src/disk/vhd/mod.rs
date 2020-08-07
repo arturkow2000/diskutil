@@ -4,28 +4,33 @@ mod footer;
 
 pub use disk::VhdDisk;
 
-#[derive(Debug, PartialEq)]
+use crate::Error;
+use std::convert::TryFrom;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+#[repr(u32)]
 pub enum DiskType {
-    Unknown(u32),
-    None,
-    Fixed,
-    Dynamic,
-    Differencing,
+    Fixed = 2,
+    Dynamic = 3,
+    Differencing = 4,
 }
 
-impl From<u32> for DiskType {
-    fn from(x: u32) -> Self {
+impl TryFrom<u32> for DiskType {
+    type Error = Error;
+
+    fn try_from(x: u32) -> Result<Self, Self::Error> {
         match x {
-            0 => Self::None,
-            2 => Self::Fixed,
-            3 => Self::Dynamic,
-            4 => Self::Differencing,
-            x => Self::Unknown(x),
+            2 => Ok(Self::Fixed),
+            3 => Ok(Self::Dynamic),
+            4 => Ok(Self::Differencing),
+            _ => Err(Error::InvalidVhdFooter(Some(
+                "Invalid VHD disk type".to_owned(),
+            ))),
         }
     }
 }
 
-impl Into<u32> for DiskType {
+/*impl Into<u32> for DiskType {
     fn into(self) -> u32 {
         match self {
             Self::None => 0,
@@ -36,3 +41,4 @@ impl Into<u32> for DiskType {
         }
     }
 }
+*/

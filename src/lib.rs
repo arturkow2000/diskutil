@@ -13,3 +13,11 @@ pub(crate) mod utils;
 pub use error::*;
 
 pub mod part;
+
+#[cfg(test)]
+extern crate better_panic;
+
+#[cfg(test)]
+pub(crate) fn tests_init() {
+    better_panic::install();
+}

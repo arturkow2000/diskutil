@@ -1,12 +1,14 @@
+extern crate better_panic;
+extern crate diskutil;
+
 use std::env::args;
 use std::fs::File;
-
-extern crate diskutil;
 
 use diskutil::disk::vhd::VhdDisk;
 use diskutil::Result;
 
 fn main() -> Result<()> {
+    better_panic::install();
     let mut args = args();
     args.next().unwrap();
 

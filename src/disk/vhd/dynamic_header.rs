@@ -1,188 +1,346 @@
-use crate::{disk::vhd::DiskType, Error, Result};
-use std::mem::{size_of, transmute, zeroed};
-use std::{fmt, slice, str};
+use crate::{u8_array_uninitialized, Error, Result};
+use std::convert::TryInto;
+use std::fmt;
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
-#[repr(C)]
 pub struct DynamicHeader {
-    pub __cookie: [u8; 8],
-    pub __data_offset: u64,
-    pub __bat_offset: u64,
-    pub __header_version: u32,
-    pub __max_table_entries: u32,
-    pub __block_size: u32,
-    pub __checksum: u32,
-    pub __parent_unique_id: [u8; 16],
-    pub __parent_timestamp: u32,
-    pub __reserved: u32,
-    pub __parent_unicode_name: [u8; 512],
-    pub __parent_locator_entry_1: [u8; 24],
-    pub __parent_locator_entry_2: [u8; 24],
-    pub __parent_locator_entry_3: [u8; 24],
-    pub __parent_locator_entry_4: [u8; 24],
-    pub __parent_locator_entry_5: [u8; 24],
-    pub __parent_locator_entry_6: [u8; 24],
-    pub __parent_locator_entry_7: [u8; 24],
-    pub __parent_locator_entry_8: [u8; 24],
-    pub __reserved2: [u8; 256],
+    pub data_offset: u64,
+    pub bat_offset: u64,
+    pub header_version: u32,
+    pub max_table_entries: u32,
+    pub block_size: u32,
+    pub parent_unique_id: [u8; 16],
+    pub parent_timestamp: u32,
+    pub reserved: u32,
+    pub parent_unicode_name: [u8; 512],
+    pub parent_locator_entry_1: [u8; 24],
+    pub parent_locator_entry_2: [u8; 24],
+    pub parent_locator_entry_3: [u8; 24],
+    pub parent_locator_entry_4: [u8; 24],
+    pub parent_locator_entry_5: [u8; 24],
+    pub parent_locator_entry_6: [u8; 24],
+    pub parent_locator_entry_7: [u8; 24],
+    pub parent_locator_entry_8: [u8; 24],
+    pub reserved2: [u8; 256],
 }
 
-impl Default for DynamicHeader {
-    fn default() -> Self {
-        unsafe { zeroed() }
+impl DynamicHeader {
+    pub const SIZE: usize = 1024;
+
+    pub fn decode(buffer: &[u8]) -> Result<Self> {
+        debug_assert_eq!(buffer.len(), Self::SIZE);
+
+        let mut reader = Cursor::new(buffer);
+        let mut temp_buffer = u8_array_uninitialized!(16);
+        #[cfg(debug_assertions)]
+        let mut total_read = 0usize;
+        let mut computed_checksum = 0u32;
+
+        let compute_checksum = |checksum: &mut u32, b: &[u8]| {
+            for x in b.iter().copied() {
+                *checksum = checksum.wrapping_add(x.into())
+            }
+        };
+
+        macro_rules! read {
+            (u8) => {{
+                reader.read_exact(&mut temp_buffer[..1])?;
+                compute_checksum(&mut computed_checksum, &temp_buffer[..1]);
+                #[cfg(debug_assertions)]
+                {
+                    total_read += 1;
+                }
+                temp_buffer[0]
+            }};
+            ($type:ty) => {{
+                let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
+                reader.read_exact(s)?;
+                compute_checksum(&mut computed_checksum, s);
+                #[cfg(debug_assertions)]
+                {
+                    total_read += ::std::mem::size_of::<$type>();
+                }
+                <$type>::from_be_bytes((*s).try_into().unwrap())
+            }};
+            ($type:ty, native) => {{
+                let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
+                reader.read_exact(s)?;
+                compute_checksum(&mut computed_checksum, s);
+                #[cfg(debug_assertions)]
+                {
+                    total_read += ::std::mem::size_of::<$type>();
+                }
+                <$type>::from_ne_bytes((*s).try_into().unwrap())
+            }};
+            ($type:ty, nohash) => {{
+                let s = &mut temp_buffer[..::std::mem::size_of::<$type>()];
+                reader.read_exact(s)?;
+                let z = [0u8; ::std::mem::size_of::<$type>()];
+                compute_checksum(&mut computed_checksum, &z[..]);
+                #[cfg(debug_assertions)]
+                {
+                    total_read += ::std::mem::size_of::<$type>();
+                }
+                <$type>::from_be_bytes((*s).try_into().unwrap())
+            }};
+            ($size:expr) => {{
+                let mut b = u8_array_uninitialized!($size);
+                reader.read_exact(&mut b[..])?;
+                compute_checksum(&mut computed_checksum, &b[..]);
+                #[cfg(debug_assertions)]
+                {
+                    total_read += $size;
+                }
+                b
+            }};
+        }
+
+        let cookie = read!(8);
+        if &cookie != b"cxsparse" {
+            return Err(Error::InvalidVhdDynamicHeader(Some(
+                "invalid cookie".to_owned(),
+            )));
+        }
+
+        let data_offset = read!(u64);
+        let bat_offset = read!(u64);
+        let header_version = read!(u32);
+        let max_table_entries = read!(u32);
+        let block_size = read!(u32);
+        let checksum = read!(u32, nohash);
+        let parent_unique_id = read!(16);
+        let parent_timestamp = read!(u32);
+        let reserved = read!(u32);
+        let parent_unicode_name = read!(512);
+        let parent_locator_entry_1 = read!(24);
+        let parent_locator_entry_2 = read!(24);
+        let parent_locator_entry_3 = read!(24);
+        let parent_locator_entry_4 = read!(24);
+        let parent_locator_entry_5 = read!(24);
+        let parent_locator_entry_6 = read!(24);
+        let parent_locator_entry_7 = read!(24);
+        let parent_locator_entry_8 = read!(24);
+        let reserved2 = read!(256);
+
+        debug_assert_eq!(total_read, Self::SIZE);
+
+        computed_checksum = !computed_checksum;
+
+        if checksum != computed_checksum {
+            return Err(Error::InvalidVhdDynamicHeader(Some(format!(
+                "Checksum mismatch, computed 0x{:08X} but the checksum is 0x{:08X}",
+                computed_checksum, checksum
+            ))));
+        }
+
+        Ok(Self {
+            data_offset,
+            bat_offset,
+            header_version,
+            max_table_entries,
+            block_size,
+            parent_unique_id,
+            parent_timestamp,
+            reserved,
+            parent_unicode_name,
+            parent_locator_entry_1,
+            parent_locator_entry_2,
+            parent_locator_entry_3,
+            parent_locator_entry_4,
+            parent_locator_entry_5,
+            parent_locator_entry_6,
+            parent_locator_entry_7,
+            parent_locator_entry_8,
+            reserved2,
+        })
     }
-}
 
-#[inline(always)]
-fn __test_size() {
-    unsafe { transmute::<[u8; 1024], DynamicHeader>([0u8; 1024]) };
+    pub fn create_dynamic(bat_size: usize, block_size: usize) -> Self {
+        Self {
+            data_offset: 0xFFFFFFFFFFFFFFFFu64,
+            bat_offset: 1536,
+            header_version: 0x00010000,
+            max_table_entries: bat_size.try_into().unwrap(),
+            block_size: block_size.try_into().unwrap(),
+            ..unsafe { ::std::mem::zeroed() }
+        }
+    }
+
+    pub fn encode(&self, buf: &mut [u8]) {
+        let mut cursor = Cursor::new(buf);
+        let mut checksum: u32 = 0;
+
+        let compute_checksum = |checksum: &mut u32, b: &[u8]| {
+            for x in b.iter().copied() {
+                *checksum = checksum.wrapping_add(x.into())
+            }
+        };
+
+        macro_rules! write {
+            ($data:expr, array) => {{
+                compute_checksum(&mut checksum, $data);
+                cursor.write_all($data).unwrap();
+            }};
+            ($data:expr) => {{
+                let x = $data.to_be_bytes();
+                compute_checksum(&mut checksum, &x);
+                cursor.write_all(&x).unwrap();
+            }};
+        }
+
+        write!(b"cxsparse", array);
+        write!(self.data_offset);
+        write!(self.bat_offset);
+        write!(self.header_version);
+        write!(self.max_table_entries);
+        write!(self.block_size);
+        let p = cursor.position();
+        write!(0u32);
+        write!(&self.parent_unique_id, array);
+        write!(self.parent_timestamp);
+        write!(self.reserved);
+        write!(&self.parent_unicode_name, array);
+        write!(&self.parent_locator_entry_1, array);
+        write!(&self.parent_locator_entry_2, array);
+        write!(&self.parent_locator_entry_3, array);
+        write!(&self.parent_locator_entry_4, array);
+        write!(&self.parent_locator_entry_5, array);
+        write!(&self.parent_locator_entry_6, array);
+        write!(&self.parent_locator_entry_7, array);
+        write!(&self.parent_locator_entry_8, array);
+        write!(&self.reserved2, array);
+
+        debug_assert_eq!(cursor.position(), Self::SIZE as u64);
+
+        checksum = !checksum;
+        cursor.seek(SeekFrom::Start(p)).unwrap();
+        write!(checksum);
+    }
 }
 
 impl fmt::Display for DynamicHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let header_version = self.header_version();
-
-        // TODO: print other fields
         write!(
             f,
-            "Cookie                : {}
-Data Offset           : 0x{:08X}
+            "Data Offset           : 0x{:08X}
 BAT Offset            : {}
-Header Version        : {}.{}
+Header Version        : 0x{:08X}
 Max Table Entries     : {}
 Block Size            : 0x{:08X}",
-            str::from_utf8(&self.__cookie).unwrap_or("<invalid>"),
-            self.data_offset(),
-            self.bat_offset(),
-            header_version.0,
-            header_version.1,
-            self.max_table_entries(),
-            self.block_size()
+            self.data_offset,
+            self.bat_offset,
+            self.header_version,
+            self.max_table_entries,
+            self.block_size
         )
     }
 }
 
-#[allow(clippy::transmute_ptr_to_ptr)]
-impl DynamicHeader {
-    #[inline]
-    pub fn data_offset(&self) -> u64 {
-        u64::from_be(self.__data_offset)
+#[cfg(test)]
+mod tests {
+    use super::DynamicHeader;
+    static HEADER: [u8; DynamicHeader::SIZE] = [
+        0x63, 0x78, 0x73, 0x70, 0x61, 0x72, 0x73, 0x65, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+        0x10, 0x00, 0x00, 0x20, 0x00, 0x00, 0xff, 0xff, 0xf4, 0x67, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    ];
+
+    #[test]
+    fn test_decode() {
+        crate::tests_init();
+
+        let dynheader = DynamicHeader::decode(&HEADER).unwrap();
+        assert_eq!(dynheader.data_offset, 0xFFFFFFFFFFFFFFFFu64);
+        assert_eq!(dynheader.bat_offset, 1536);
+        assert_eq!(dynheader.header_version, 0x10000);
+        assert_eq!(dynheader.max_table_entries, 4096);
+        assert_eq!(dynheader.block_size, 0x200000);
+        assert_eq!(dynheader.parent_unique_id, [0; 16]);
+        assert_eq!(dynheader.parent_timestamp, 0);
+        assert_eq!(dynheader.parent_unicode_name, [0; 512]);
+        assert_eq!(dynheader.parent_locator_entry_1, [0; 24]);
+        assert_eq!(dynheader.parent_locator_entry_2, [0; 24]);
+        assert_eq!(dynheader.parent_locator_entry_3, [0; 24]);
+        assert_eq!(dynheader.parent_locator_entry_4, [0; 24]);
+        assert_eq!(dynheader.parent_locator_entry_5, [0; 24]);
+        assert_eq!(dynheader.parent_locator_entry_6, [0; 24]);
+        assert_eq!(dynheader.parent_locator_entry_7, [0; 24]);
+        assert_eq!(dynheader.parent_locator_entry_8, [0; 24]);
+        assert_eq!(dynheader.reserved2, [0; 256]);
     }
 
-    #[inline]
-    pub fn bat_offset(&self) -> u64 {
-        u64::from_be(self.__bat_offset)
-    }
-
-    #[inline]
-    pub fn header_version(&self) -> (u16, u16) {
-        let v = u32::from_be(self.__header_version);
-        ((v >> 16) as u16, (v & 0xFFFF) as u16)
-    }
-
-    #[inline]
-    pub fn max_table_entries(&self) -> u32 {
-        u32::from_be(self.__max_table_entries)
-    }
-
-    #[inline]
-    pub fn block_size(&self) -> u32 {
-        u32::from_be(self.__block_size)
-    }
-
-    pub fn compute_checksum(&self) -> u32 {
-        /*let a = unsafe { transmute::<&Self, &[u8; size_of::<Self>()]>(self) };
-        let mut checksum: u32 = 0;
-
-        for (i, mut b) in a.iter().copied().enumerate() {
-            if i & !0b11 == 36 {
-                b = 0;
-            }
-
-            checksum = checksum.wrapping_add(b.into());
-        }
-
-        !checksum*/
-
-        let mut checksum: u32 = 0;
-        let mut p = self as *const _ as *const u8;
-        let mut left = size_of::<Self>();
-
-        while left > 0 {
-            let x = unsafe { *p };
-            checksum = checksum.wrapping_add(x.into());
-
-            p = unsafe { p.offset(1) };
-            left -= 1;
-        }
-
-        !checksum
-    }
-
-    pub fn verify(&self, disk_type: DiskType, file_size: usize) -> Result<()> {
-        /*let computed_checksum = self.compute_checksum();
-        let checksum = u32::from_be(self.__checksum);
-        if computed_checksum != checksum {
-            return Err(Error::InvalidVhdDynamicHeader(Some(format!(
-                "Invalid checksum, checksum=0x{:08X} computed_checksum=0x{:08X}",
-                checksum, computed_checksum
-            ))));
-        }*/
-
-        if &self.__cookie != b"cxsparse" {
-            return Err(Error::InvalidVhdDynamicHeader(Some(
-                "Invalid cookie.".to_owned(),
-            )));
-        }
-
-        let version = self.header_version();
-        if version.0 != 1 {
-            return Err(Error::InvalidVhdDynamicHeader(Some(format!(
-                "Unsupported version, expected 1.x got {}.{}.",
-                version.0, version.1
-            ))));
-        }
-
-        if self.data_offset() != 0xFFFFFFFFFFFFFFFF {
-            return Err(Error::InvalidVhdDynamicHeader(Some(
-                "Invalid data_offset".to_owned(),
-            )));
-        }
-
-        let bat_offset = self.bat_offset() as usize;
-        if bat_offset > file_size {
-            return Err(Error::InvalidVhdDynamicHeader(Some(format!(
-                "BAT offset points past end of file ({} > {})",
-                bat_offset, file_size
-            ))));
-        }
-
-        if disk_type == DiskType::Differencing {
-            return Err(Error::InvalidVhdDynamicHeader(Some(
-                "Differencing disks not supported yet.".to_owned(),
-            )));
-        }
-
-        assert_eq!(disk_type, DiskType::Dynamic);
-
-        Ok(())
-    }
-
-    pub fn create_dynamic(bat_size: usize, block_size: usize) -> Self {
-        let mut this = Self::default();
-
-        this.__cookie.copy_from_slice(b"cxsparse");
-        this.__data_offset = 0xFFFFFFFFFFFFFFFFu64;
-        this.__bat_offset = u64::to_be(1536);
-        this.__header_version = u32::to_be(0x00010000);
-        this.__block_size = u32::to_be(block_size as u32);
-        this.__max_table_entries = u32::to_be(bat_size as u32);
-
-        this.__checksum = u32::to_be(this.compute_checksum());
-
-        this
-    }
-
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(self as *const _ as *const u8, size_of::<Self>()) }
+    #[test]
+    fn test_encode() {
+        crate::tests_init();
+        let dynheader = DynamicHeader::decode(&HEADER).unwrap();
+        let mut buffer = [0u8; DynamicHeader::SIZE];
+        dynheader.encode(&mut buffer[..]);
+        assert_eq!(buffer, HEADER);
     }
 }

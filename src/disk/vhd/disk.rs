@@ -1,12 +1,11 @@
 use crate::disk::vhd::{dynamic_header::DynamicHeader, footer::Footer, DiskType as VhdDiskType};
 use crate::disk::{Disk, DiskType, Info, MediaType};
-#[macro_use]
-use crate::{is_power_of_2, round_up, Result};
+use crate::{is_power_of_2, round_up, u8_array_uninitialized, utils::zero_u8_slice, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::cmp::min;
-use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::mem::{size_of, transmute, MaybeUninit};
-use std::{ptr, slice};
+use std::convert::TryInto;
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
+use std::slice;
 
 const SECTOR_SIZE: u32 = 512;
 
@@ -16,6 +15,9 @@ where
 {
     backend: B,
     footer: Footer,
+    // cache encoded footer so we don't have to re-encode it on every rewrite
+    footer_encoded: [u8; Footer::SIZE],
+    footer_encoded_valid: bool,
     dynamic_header: DynamicHeader,
     bat: Vec<u32>,
 
@@ -27,71 +29,60 @@ where
     free_data_block_offset: u64,
 }
 
-// FIXME: this needs rewrite into safer code
-#[allow(clippy::transmute_ptr_to_ptr)]
 impl<B> VhdDisk<B>
 where
     B: Read + Seek + Write,
 {
-    pub fn open(backend: B) -> Result<Self> {
-        #[allow(clippy::uninit_assumed_init)]
-        let mut this = Self {
-            backend,
-            footer: unsafe { MaybeUninit::uninit().assume_init() },
-            dynamic_header: unsafe { MaybeUninit::uninit().assume_init() },
-            bat: Vec::new(),
-            block_size: 0,
-            bitmap_size: 0,
-            max_disk_size: 0,
-            cursor: 0,
-            free_data_block_offset: !0,
-        };
+    pub fn open(mut backend: B) -> Result<Self> {
+        let _file_size = backend.seek(SeekFrom::End(
+            -TryInto::<i64>::try_into(Footer::SIZE).unwrap(),
+        ))? as usize
+            + Footer::SIZE;
+        let mut reader = BufReader::with_capacity(65536, backend);
+        let mut footer_encoded = u8_array_uninitialized!(Footer::SIZE);
+        reader.read_exact(&mut footer_encoded)?;
+        let footer = Footer::decode(&footer_encoded)?;
+        // TODO: try footer backup in case of failure
+        debug!("Footer:\n{}\n", footer);
 
-        let file_size = this
-            .backend
-            .seek(SeekFrom::End(-(size_of::<Footer>() as i64)))? as usize
-            + size_of::<Footer>();
-        this.backend.read_exact(unsafe {
-            &mut transmute::<&mut Footer, &mut [u8; size_of::<Footer>()]>(&mut this.footer)[..]
-        })?;
+        // TODO: support other disk types
+        assert_eq!(footer.disk_type, VhdDiskType::Dynamic);
+        reader.seek(SeekFrom::Start(footer.data_offset))?;
+        let mut dynamic_header_encoded = u8_array_uninitialized!(DynamicHeader::SIZE);
+        reader.read_exact(&mut dynamic_header_encoded[..])?;
 
-        debug!("{}", this.footer);
+        let dynamic_header = DynamicHeader::decode(&dynamic_header_encoded)?;
+        debug!("Dynamic header:\n{}", dynamic_header);
 
-        this.footer.verify(file_size)?;
+        let mut bat = Vec::with_capacity(dynamic_header.max_table_entries as usize);
+        reader.seek(SeekFrom::Start(dynamic_header.bat_offset))?;
+        for _ in 0..dynamic_header.max_table_entries as usize {
+            bat.push(reader.read_u32::<BigEndian>()?);
+        }
 
-        this.backend
-            .seek(SeekFrom::Start(this.footer.data_offset()))?;
-        this.backend.read_exact(unsafe {
-            &mut transmute::<&mut DynamicHeader, &mut [u8; size_of::<Footer>()]>(
-                &mut this.dynamic_header,
-            )[..]
-        })?;
-
-        debug!("{}", this.dynamic_header);
-
-        this.dynamic_header
-            .verify(this.footer.disk_type(), file_size)?;
-
-        this.backend
-            .seek(SeekFrom::Start(this.dynamic_header.bat_offset()))?;
-
-        let bat_size = this.dynamic_header.max_table_entries() as usize;
-        this.bat.reserve(bat_size);
-        unsafe { this.bat.set_len(bat_size) };
-        this.backend
-            .read_u32_into::<BigEndian>(this.bat.as_mut_slice())?;
-
-        this.block_size = this.dynamic_header.block_size();
-        this.bitmap_size = ((this.block_size / (8 * 512)) + 511) & !511;
-        this.max_disk_size = this.dynamic_header.max_table_entries() as usize
-            * this.dynamic_header.block_size() as usize;
-
-        this.free_data_block_offset = round_up!(
-            this.dynamic_header.bat_offset() + this.bat.len() as u64 * 4,
+        let block_size = dynamic_header.block_size;
+        let bitmap_size = ((block_size / (8 * 512)) + 511) & !511;
+        // FIXME: use chs for size calculation
+        let max_disk_size =
+            dynamic_header.max_table_entries as usize * dynamic_header.block_size as usize;
+        let free_data_block_offset = round_up!(
+            dynamic_header.bat_offset + bat.len() as u64 * 4,
             SECTOR_SIZE as u64
         );
 
-        Ok(this)
+        Ok(Self {
+            backend: reader.into_inner(),
+            footer,
+            footer_encoded,
+            footer_encoded_valid: true,
+            dynamic_header,
+            bat,
+            block_size,
+            bitmap_size,
+            max_disk_size,
+            cursor: 0,
+            free_data_block_offset,
+        })
     }
 
     fn get_offset(&mut self, offset: u64, write: bool) -> io::Result<Option<Option<u64>>> {
@@ -130,7 +121,9 @@ where
         // TODO: verify max_sectors and block_size
 
         let footer = Footer::create(VhdDiskType::Dynamic, max_sectors);
-        backend.write_all(footer.as_bytes())?;
+        let mut footer_encoded = u8_array_uninitialized!(Footer::SIZE);
+        footer.encode(&mut footer_encoded);
+        backend.write_all(&footer_encoded)?;
 
         let mut bat_size = max_sectors / (block_size / SECTOR_SIZE as usize);
         if max_sectors % (block_size / SECTOR_SIZE as usize) != 0 {
@@ -138,7 +131,9 @@ where
         }
 
         let dynamic_header = DynamicHeader::create_dynamic(bat_size, block_size);
-        backend.write_all(dynamic_header.as_bytes())?;
+        let mut dynamic_header_encoded = u8_array_uninitialized!(DynamicHeader::SIZE);
+        dynamic_header.encode(&mut dynamic_header_encoded);
+        backend.write_all(&dynamic_header_encoded)?;
 
         let mut bat: Vec<u32> = Vec::new();
         bat.resize_with(bat_size, || 0xFFFFFFFF);
@@ -155,16 +150,18 @@ where
             }
         }
 
-        backend.write_all(footer.as_bytes())?;
+        backend.write_all(&footer_encoded)?;
 
         let free_data_block_offset = round_up!(
-            dynamic_header.bat_offset() + bat.len() as u64 * 4,
+            dynamic_header.bat_offset + bat.len() as u64 * 4,
             SECTOR_SIZE as u64
         );
 
         Ok(Self {
             backend,
             footer,
+            footer_encoded,
+            footer_encoded_valid: true,
             dynamic_header,
             bat,
             block_size: block_size as u32,
@@ -175,7 +172,7 @@ where
         })
     }
 
-    pub fn alloc_block(&mut self, offset: u64) -> io::Result<u64> {
+    fn alloc_block(&mut self, offset: u64) -> io::Result<u64> {
         let bat_index = offset as usize / self.block_size as usize;
         assert_eq!(self.bat[bat_index], 0xFFFFFFFF);
 
@@ -191,15 +188,24 @@ where
         let next_offset =
             self.free_data_block_offset + self.block_size as u64 + self.bitmap_size as u64;
         self.backend.seek(SeekFrom::Start(next_offset))?;
-        self.backend.write_all(self.footer.as_bytes())?;
+        self.rewrite_footer()?;
 
         self.backend.seek(SeekFrom::Start(
-            self.dynamic_header.bat_offset() + 4 * bat_index as u64,
+            self.dynamic_header.bat_offset + 4 * bat_index as u64,
         ))?;
         self.backend.write_u32::<BigEndian>(bat_value)?;
         self.free_data_block_offset = next_offset;
 
         Ok(self.get_offset(offset, false)?.unwrap().unwrap())
+    }
+
+    fn rewrite_footer(&mut self) -> io::Result<()> {
+        if !self.footer_encoded_valid {
+            self.footer.encode(&mut self.footer_encoded);
+            self.footer_encoded_valid = true;
+        }
+
+        self.backend.write_all(&self.footer_encoded)
     }
 }
 
@@ -258,11 +264,7 @@ where
                     self.backend
                         .read_exact(&mut buf[total_read..total_read + n])?;
                 } else {
-                    unsafe {
-                        let s = &mut buf[total_read..total_read + n];
-                        // FIXME: see https://github.com/rust-lang/rfcs/issues/2067
-                        ptr::write_bytes(s.as_mut_ptr(), 0, n)
-                    }
+                    zero_u8_slice(&mut buf[total_read..total_read + n]);
                 }
             } else {
                 break;

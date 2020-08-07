@@ -1,3 +1,4 @@
+extern crate better_panic;
 extern crate clap;
 extern crate diskutil;
 
@@ -11,6 +12,7 @@ use diskutil::disk::Info;
 use diskutil::Result;
 
 fn main() -> Result<()> {
+    better_panic::install();
     let matches = clap_app!(bin2vhd =>
         (@arg INPUT: +required)
         (@arg OUTPUT: +required)
