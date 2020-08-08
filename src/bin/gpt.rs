@@ -156,7 +156,7 @@ fn main() -> Result<()> {
 
 fn handle_create_subcommand(disk: &mut dyn Disk, _matches: Option<&ArgMatches>) {
     let mut gpt = Gpt::create(disk).unwrap();
-    gpt.update().unwrap();
+    gpt.update(disk).unwrap();
 }
 
 fn handle_print_subcommand(_gpt: &mut Gpt, _matches: Option<&ArgMatches>) {

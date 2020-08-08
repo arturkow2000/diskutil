@@ -15,8 +15,7 @@ pub enum ErrorAction {
     Ignore,
 }
 
-pub struct Gpt<'a> {
-    disk: &'a mut dyn Disk,
+pub struct Gpt {
     pub partitions: Vec<Option<GptPartition>>,
     //
     pub revision: u32,
@@ -34,8 +33,12 @@ pub struct Gpt<'a> {
     pub header_additional_data: Vec<u8>,
 }
 
-impl<'a> Gpt<'a> {
-    pub fn load(disk: &'a mut dyn Disk, error_action: ErrorAction) -> Result<Self> {
+impl Gpt {
+    const ENTRY_SIZE: u32 = 128;
+    const REVISION: u32 = 0x00010000;
+
+    // TODO: support loading backup
+    pub fn load(disk: &mut dyn Disk, error_action: ErrorAction) -> Result<Self> {
         let sector_size = disk.block_size();
         let mut reader = BufReader::with_capacity(sector_size, disk);
         let mut crc32 = crc32::Digest::new(crc32::IEEE);
@@ -270,7 +273,6 @@ impl<'a> Gpt<'a> {
         }
 
         Ok(Self {
-            disk,
             partitions,
             revision,
             reserved,
@@ -286,35 +288,35 @@ impl<'a> Gpt<'a> {
         })
     }
 
-    pub fn create(disk: &'a mut dyn Disk) -> Result<Self> {
+    pub fn create(disk: &mut dyn Disk) -> Result<Self> {
         Self::create_ex(disk, 128)
     }
-    pub fn create_ex(disk: &'a mut dyn Disk, max_entries: u32) -> Result<Self> {
-        const ENTRY_SIZE: u32 = 128;
-        const REVISION: u32 = 0x00010000;
-
+    pub fn create_ex(disk: &mut dyn Disk, max_entries: u32) -> Result<Self> {
         let sector_size = disk.block_size();
 
         let partition_table_start = 2;
         let partition_table_entries_num = max_entries;
-        let partition_table_entry_size = ENTRY_SIZE;
-        let first_usable_lba = partition_table_start
-            + (round_up!(
-                partition_table_entry_size as u64 * partition_table_entries_num as u64,
-                sector_size as u64
-            ) / sector_size as u64);
+        let partition_table_entry_size = Self::ENTRY_SIZE;
+
+        let partition_table_size_in_sectors = round_up!(
+            partition_table_entry_size as u64 * partition_table_entries_num as u64,
+            sector_size as u64
+        ) / sector_size as u64;
+        let first_usable_lba = partition_table_start + partition_table_size_in_sectors;
+
+        let disk_size = disk.max_disk_size();
+        assert_eq!(disk_size % sector_size, 0);
+        let alternate_lba = (disk_size / sector_size) as u64;
+        let last_usable_lba = alternate_lba - partition_table_size_in_sectors - 1;
 
         Ok(Self {
-            disk,
             partitions: Vec::new(),
-            revision: REVISION,
+            revision: Self::REVISION,
             reserved: 0,
             current_lba: 1,
-            // FIXME
-            alternate_lba: 0xFFFFFFFFFFFFFFFF,
+            alternate_lba,
             first_usable_lba,
-            // FIXME
-            last_usable_lba: 0xFFFFFFFFFFFFFFFF - 1,
+            last_usable_lba,
             disk_guid: Uuid::new_v4(),
             partition_table_start,
             partition_table_entries_num,
@@ -323,8 +325,8 @@ impl<'a> Gpt<'a> {
         })
     }
 
-    pub fn update(&mut self) -> Result<()> {
-        let sector_size = self.disk.block_size();
+    pub fn update(&mut self, disk: &mut dyn Disk) -> Result<()> {
+        let sector_size = disk.block_size();
         let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(round_up!(
             self.partition_table_entries_num as usize * self.partition_table_entry_size as usize,
             sector_size
@@ -439,13 +441,62 @@ impl<'a> Gpt<'a> {
         let header = cursor.into_inner();
 
         // TODO: check if contiguous and use write_all_vectored if possible
-        self.disk
-            .seek(SeekFrom::Start(self.current_lba * sector_size as u64))?;
-        self.disk.write_all(header.as_slice())?;
-        self.disk.seek(SeekFrom::Start(
+        disk.seek(SeekFrom::Start(self.current_lba * sector_size as u64))?;
+        disk.write_all(header.as_slice())?;
+        disk.seek(SeekFrom::Start(
             self.partition_table_start * sector_size as u64,
         ))?;
-        self.disk.write_all(partition_table_buffer.as_slice())?;
+        disk.write_all(partition_table_buffer.as_slice())?;
+
+        // Write backup partition table
+        let partition_table_size_in_sectors = round_up!(
+            self.partition_table_entry_size as u64 * self.partition_table_entries_num as u64,
+            sector_size as u64
+        ) / sector_size as u64;
+        let backup_partition_table_lba = self.alternate_lba - partition_table_size_in_sectors;
+        disk.seek(SeekFrom::Start(
+            backup_partition_table_lba * sector_size as u64,
+        ))?;
+        disk.write_all(partition_table_buffer.as_slice())?;
+
+        // Write backup header
+        crc32.reset();
+        let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(sector_size));
+        write_hash!(u64, cursor, 0x5452415020494645u64).unwrap();
+        write_hash!(u32, cursor, self.revision).unwrap();
+        write_hash!(
+            u32,
+            cursor,
+            GPT_HEADER_SIZE as u32 + self.header_additional_data.len() as u32
+        )
+        .unwrap();
+        write_hash!(u32, cursor, 0).unwrap();
+        write_hash!(u32, cursor, self.reserved).unwrap();
+        write_hash!(u64, cursor, self.alternate_lba).unwrap();
+        write_hash!(u64, cursor, self.current_lba).unwrap();
+        write_hash!(u64, cursor, self.first_usable_lba).unwrap();
+        write_hash!(u64, cursor, self.last_usable_lba).unwrap();
+        write_guid_hash(&mut cursor, &mut crc32, self.disk_guid).unwrap();
+        write_hash!(u64, cursor, backup_partition_table_lba).unwrap();
+        write_hash!(u32, cursor, self.partition_table_entries_num).unwrap();
+        write_hash!(u32, cursor, self.partition_table_entry_size).unwrap();
+        write_hash!(u32, cursor, partition_table_crc32).unwrap();
+
+        debug_assert_eq!(cursor.position(), GPT_HEADER_SIZE as u64);
+        if !self.header_additional_data.is_empty() {
+            cursor
+                .write_all(self.header_additional_data.as_slice())
+                .unwrap();
+            Hasher::write(&mut crc32, self.header_additional_data.as_slice());
+        }
+        let p = cursor.position();
+        debug_assert!(p as usize <= sector_size);
+        cursor.set_position(16);
+        cursor.write_u32::<LittleEndian>(crc32.sum32()).unwrap();
+
+        let header = cursor.into_inner();
+        disk.seek(SeekFrom::Start(self.alternate_lba * sector_size as u64))?;
+        disk.write_all(header.as_slice())?;
 
         Ok(())
     }
