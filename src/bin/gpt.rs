@@ -10,6 +10,7 @@ use diskutil::disk::raw::RawDisk;
 use diskutil::disk::vhd::VhdDisk;
 use diskutil::disk::{Disk, MediaType};
 use diskutil::part::gpt::{ErrorAction, Gpt};
+use diskutil::part::mbr::Mbr;
 use diskutil::Result;
 
 use std::fs::{File, OpenOptions};
@@ -155,6 +156,9 @@ fn main() -> Result<()> {
 }
 
 fn handle_create_subcommand(disk: &mut dyn Disk, _matches: Option<&ArgMatches>) {
+    let mut pmbr = Mbr::create_protective(disk);
+    pmbr.update().unwrap();
+
     let mut gpt = Gpt::create(disk).unwrap();
     gpt.update(disk).unwrap();
 }
