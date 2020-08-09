@@ -9,6 +9,7 @@ pub mod disk;
 mod error;
 #[macro_use]
 pub(crate) mod utils;
+pub mod fs;
 
 pub use error::*;
 

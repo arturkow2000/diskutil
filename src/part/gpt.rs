@@ -40,7 +40,7 @@ impl Gpt {
     // TODO: support loading backup
     pub fn load(disk: &mut dyn Disk, error_action: ErrorAction) -> Result<Self> {
         let sector_size = disk.block_size();
-        let mut reader = BufReader::with_capacity(sector_size, disk);
+        let mut reader = BufReader::with_capacity(sector_size as usize, disk);
         let mut crc32 = crc32::Digest::new(crc32::IEEE);
 
         macro_rules! read_hash {
@@ -305,8 +305,8 @@ impl Gpt {
         let first_usable_lba = partition_table_start + partition_table_size_in_sectors;
 
         let disk_size = disk.max_disk_size();
-        assert_eq!(disk_size % sector_size, 0);
-        let alternate_lba = (disk_size / sector_size) as u64;
+        assert_eq!(disk_size % sector_size as u64, 0);
+        let alternate_lba = disk_size / sector_size as u64;
         let last_usable_lba = alternate_lba - partition_table_size_in_sectors - 1;
 
         Ok(Self {
@@ -329,7 +329,7 @@ impl Gpt {
         let sector_size = disk.block_size();
         let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(round_up!(
             self.partition_table_entries_num as usize * self.partition_table_entry_size as usize,
-            sector_size
+            sector_size as usize
         )));
         let mut crc32 = crc32::Digest::new(crc32::IEEE);
 
@@ -399,8 +399,8 @@ impl Gpt {
         let partition_table_crc32 = crc32.sum32();
 
         crc32.reset();
-        assert!(self.header_additional_data.len() + GPT_HEADER_SIZE <= sector_size);
-        let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(sector_size));
+        assert!(self.header_additional_data.len() + GPT_HEADER_SIZE <= sector_size as usize);
+        let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(sector_size as usize));
 
         write_hash!(u64, cursor, 0x5452415020494645u64).unwrap();
         write_hash!(u32, cursor, self.revision).unwrap();
@@ -430,11 +430,11 @@ impl Gpt {
             Hasher::write(&mut crc32, self.header_additional_data.as_slice());
         }
         let p = cursor.position();
-        debug_assert!(p as usize <= sector_size);
+        debug_assert!(p <= sector_size as u64);
         cursor.set_position(16);
         cursor.write_u32::<LittleEndian>(crc32.sum32()).unwrap();
 
-        if p as usize != sector_size {
+        if p != sector_size as u64 {
             zero_u8_slice(&mut cursor.get_mut()[p as usize..sector_size as usize]);
         }
 
@@ -461,7 +461,7 @@ impl Gpt {
 
         // Write backup header
         crc32.reset();
-        let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(sector_size));
+        let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(sector_size as usize));
         write_hash!(u64, cursor, 0x5452415020494645u64).unwrap();
         write_hash!(u32, cursor, self.revision).unwrap();
         write_hash!(
@@ -490,7 +490,7 @@ impl Gpt {
             Hasher::write(&mut crc32, self.header_additional_data.as_slice());
         }
         let p = cursor.position();
-        debug_assert!(p as usize <= sector_size);
+        debug_assert!(p <= sector_size as u64);
         cursor.set_position(16);
         cursor.write_u32::<LittleEndian>(crc32.sum32()).unwrap();
 

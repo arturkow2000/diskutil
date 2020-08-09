@@ -179,7 +179,7 @@ impl<'a> Mbr<'a> {
     pub fn create_protective(disk: &'a mut dyn Disk) -> Self {
         let sector_size = disk.block_size();
         let size = disk.max_disk_size();
-        let num_sectors = size / sector_size;
+        let num_sectors = size / sector_size as u64;
         Self {
             partitions: [
                 Some(MbrPartition {
@@ -189,7 +189,7 @@ impl<'a> Mbr<'a> {
                     partition_type: 0xEE,
                     lba: 1,
                     num_sectors: (num_sectors).try_into().unwrap_or(u32::MAX),
-                    sector_size: sector_size.try_into().unwrap(),
+                    sector_size,
                 }),
                 None,
                 None,

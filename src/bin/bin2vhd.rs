@@ -8,7 +8,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
 use diskutil::disk::vhd::VhdDisk;
-use diskutil::disk::Info;
+use diskutil::disk::{FileBackend, Info};
 use diskutil::Result;
 
 fn main() -> Result<()> {
@@ -26,17 +26,16 @@ fn main() -> Result<()> {
         .read(true)
         .write(false)
         .open(input_path)?;
-    let mut output = File::create(output_path)?;
+    let output = FileBackend::new(File::create(output_path)?)?;
 
-    let mut vhd =
-        VhdDisk::create_dynamic(&mut output, 1024 * 1024 * 1024 * 64 / 512 /* 64 GiB */)?;
+    let mut vhd = VhdDisk::create_dynamic(output, 1024 * 1024 * 1024 * 64 /* 64 GiB */)?;
 
     let mut buf: Vec<u8> = Vec::new();
     buf.reserve(1024 * 1024 * 16);
     unsafe { buf.set_len(buf.capacity()) };
 
     let block_size = vhd.block_size();
-    assert_eq!(buf.len() % block_size, 0);
+    assert_eq!(buf.len() % block_size as usize, 0);
 
     loop {
         let n = input.read(buf.as_mut_slice())?;

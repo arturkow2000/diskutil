@@ -1,5 +1,5 @@
 use crate::disk::vhd::{dynamic_header::DynamicHeader, footer::Footer, DiskType as VhdDiskType};
-use crate::disk::{Disk, DiskType, Info, MediaType};
+use crate::disk::{ArgumentMap, Backend, Disk, DiskFormat, Info, MediaType};
 use crate::{is_power_of_2, round_up, u8_array_uninitialized, utils::zero_u8_slice, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::cmp::min;
@@ -9,11 +9,8 @@ use std::slice;
 
 const SECTOR_SIZE: u32 = 512;
 
-pub struct VhdDisk<B>
-where
-    B: Read + Seek + Write,
-{
-    backend: B,
+pub struct VhdDisk {
+    backend: Box<dyn Backend>,
     footer: Footer,
     // cache encoded footer so we don't have to re-encode it on every rewrite
     footer_encoded: [u8; Footer::SIZE],
@@ -29,11 +26,12 @@ where
     free_data_block_offset: u64,
 }
 
-impl<B> VhdDisk<B>
-where
-    B: Read + Seek + Write,
-{
-    pub fn open(mut backend: B) -> Result<Self> {
+impl VhdDisk {
+    pub fn open_with_argmap(backend: Box<dyn Backend>, _args: &ArgumentMap) -> Result<Self> {
+        Self::open(backend)
+    }
+
+    pub fn open(mut backend: Box<dyn Backend>) -> Result<Self> {
         let _file_size = backend.seek(SeekFrom::End(
             -TryInto::<i64>::try_into(Footer::SIZE).unwrap(),
         ))? as usize
@@ -110,14 +108,22 @@ where
         }
     }
 
-    pub fn create_dynamic(backend: B, max_sectors: usize) -> io::Result<Self> {
-        Self::create_dynamic_ex(backend, max_sectors, 1024 * 1024 * 2)
+    pub fn create_dynamic(backend: Box<dyn Backend>, max_disk_size: usize) -> io::Result<Self> {
+        Self::create_dynamic_ex(backend, max_disk_size, 1024 * 1024 * 2)
     }
     pub fn create_dynamic_ex(
-        mut backend: B,
-        max_sectors: usize,
+        mut backend: Box<dyn Backend>,
+        max_disk_size: usize,
         block_size: usize,
     ) -> io::Result<Self> {
+        let max_sectors = {
+            let mut t = max_disk_size / 512;
+            if max_disk_size % 512 != 0 {
+                t += 1;
+            }
+            t
+        };
+
         // TODO: verify max_sectors and block_size
 
         let footer = Footer::create(VhdDiskType::Dynamic, max_sectors);
@@ -209,20 +215,17 @@ where
     }
 }
 
-impl<B> Info for VhdDisk<B>
-where
-    B: Read + Seek + Write,
-{
-    fn disk_type(&self) -> DiskType {
-        DiskType::VHD
+impl Info for VhdDisk {
+    fn disk_format(&self) -> DiskFormat {
+        DiskFormat::VHD
     }
-    fn max_disk_size(&self) -> usize {
-        self.max_disk_size
+    fn max_disk_size(&self) -> u64 {
+        self.max_disk_size as u64
     }
-    fn disk_size(&self) -> usize {
+    fn disk_size(&self) -> u64 {
         todo!()
     }
-    fn block_size(&self) -> usize {
+    fn block_size(&self) -> u32 {
         512
     }
     fn media_type(&self) -> MediaType {
@@ -230,10 +233,7 @@ where
     }
 }
 
-impl<B> Seek for VhdDisk<B>
-where
-    B: Read + Seek + Write,
-{
+impl Seek for VhdDisk {
     fn seek(&mut self, s: SeekFrom) -> io::Result<u64> {
         match s {
             SeekFrom::Start(x) => self.cursor = x,
@@ -245,10 +245,7 @@ where
     }
 }
 
-impl<B> Read for VhdDisk<B>
-where
-    B: Read + Seek + Write,
-{
+impl Read for VhdDisk {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut left = buf.len();
         let mut total_read = 0usize;
@@ -279,10 +276,7 @@ where
     }
 }
 
-impl<B> Write for VhdDisk<B>
-where
-    B: Read + Seek + Write,
-{
+impl Write for VhdDisk {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut left = buf.len();
         let mut total_written = 0usize;
@@ -330,4 +324,4 @@ where
     }
 }
 
-impl<B> Disk for VhdDisk<B> where B: Read + Seek + Write {}
+impl Disk for VhdDisk {}
