@@ -12,6 +12,7 @@ pub enum Error {
     GptMissing,
     InvalidGpt(String),
     UnknownDiskType,
+    InvalidBpb,
 }
 
 impl From<io::Error> for Error {
@@ -35,6 +36,7 @@ impl ToString for Error {
             Self::GptMissing => "GPT is missing".to_owned(),
             Self::InvalidGpt(e) => e.clone(),
             Self::UnknownDiskType => "Unknown disk type".to_owned(),
+            Self::InvalidBpb => "BPB is invalid".to_owned(),
         }
     }
 }

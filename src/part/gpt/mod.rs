@@ -1,3 +1,6 @@
+mod partition_type;
+pub use partition_type::*;
+
 use crate::disk::Disk;
 use crate::utils::{allocate_u8_vector_uninitialized, zero_u8_slice};
 use crate::{is_power_of_2, round_up, Error, Result};
@@ -499,14 +502,6 @@ impl Gpt {
         disk.write_all(header.as_slice())?;
 
         Ok(())
-    }
-}
-
-pub enum GptPartitionType {}
-
-impl GptPartitionType {
-    fn to_guid(&self) -> Uuid {
-        todo!()
     }
 }
 

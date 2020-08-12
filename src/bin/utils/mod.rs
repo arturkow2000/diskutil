@@ -105,3 +105,22 @@ pub fn parse_size(x: &str) -> result::Result<usize, String> {
         Err("Number to large to fit into usize".to_owned())
     }
 }
+
+#[allow(dead_code)]
+#[allow(non_upper_case_globals)]
+pub fn size_to_string(s: u64) -> String {
+    const KiB: u64 = 1024;
+    const MiB: u64 = 1048576;
+    const GiB: u64 = 1073741824;
+    const TiB: u64 = 1099511627776;
+    const EiB: u64 = 1125899906842624;
+
+    match s {
+        0..=1023 => format!("{}", s),
+        1024..=1048575 => format!("{} KiB", s / 1024),
+        1048576..=1073741823 => format!("{} MiB", s / 1048576),
+        1073741824..=1099511627775 => format!("{} GiB", s / 1073741824),
+        1099511627776..=1125899906842623 => format!("{} TiB", s / 1125899906842624),
+        1125899906842624..=u64::MAX => format!("{} EiB", s / 1125899906842624),
+    }
+}

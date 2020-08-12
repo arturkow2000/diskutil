@@ -1,16 +1,15 @@
-use better_panic;
+mod utils;
+
 use clap::Clap;
-use diskutil::disk::{open_disk, DiskFormat, FileBackend};
+use diskutil::disk::{open_disk, Disk, DiskFormat, FileBackend};
 use diskutil::part::{
     gpt::{ErrorAction, Gpt},
     mbr::Mbr,
 };
 use diskutil::Result;
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::result;
-
-mod utils;
 
 fn parse_sector_size(x: &str) -> result::Result<usize, String> {
     let x = usize::from_str_radix(x, 10).map_err(|e| e.to_string())?;
@@ -50,22 +49,53 @@ fn main() -> Result<()> {
     let options = Options::parse();
     utils::setup_logging(options.verbose);
 
+    // TODO: pass sector_size
     let mut disk = open_disk(
         options.disk_format,
-        FileBackend::new(File::open(options.file)?)?,
+        FileBackend::new(
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(options.file)?,
+        )?,
         Default::default(),
     )?;
 
+    if let SubCommand::Create = options.subcommand {
+        Mbr::create_protective(disk.as_mut()).update()?;
+        Gpt::create(disk.as_mut())?.update(disk.as_mut())?;
+        return Ok(());
+    }
+
+    let gpt = Gpt::load(disk.as_mut(), ErrorAction::Abort)?;
+
     match options.subcommand {
-        SubCommand::Create => {
-            Mbr::create_protective(disk.as_mut()).update()?;
-            Gpt::create(disk.as_mut())?.update(disk.as_mut())?;
-            return Ok(());
-        }
-        _ => (),
+        SubCommand::Create => unreachable!(),
+        SubCommand::Print => print_patition_table(disk.as_ref(), &gpt)?,
     };
 
-    let _gpt = Gpt::load(disk.as_mut(), ErrorAction::Abort)?;
+    Ok(())
+}
 
+fn print_patition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
+    println!("{:<8} {:<8} {:<8}", "Start", "End", "Size");
+    for p in &gpt.partitions {
+        if let Some(p) = p {
+            if let Some(size) = p
+                .end_lba
+                .checked_sub(p.start_lba)
+                .and_then(|x| Some((x + 1).saturating_mul(disk.block_size().into())))
+            {
+                println!(
+                    "{:<8} {:<8} {:<8}",
+                    p.start_lba,
+                    p.end_lba,
+                    utils::size_to_string(size)
+                );
+            } else {
+                println!("{:<8} {:<8} ERROR: end < start", p.start_lba, p.end_lba);
+            }
+        }
+    }
     Ok(())
 }

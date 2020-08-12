@@ -24,6 +24,10 @@ path = "src/bin/bin2vhd.rs"
 name = "gpt"
 path = "src/bin/gpt.rs"
 
+[[bin]]
+name = "fat32"
+path = "src/bin/fat32.rs"
+
 [dependencies]
 bitflags = "1.2.1"
 derivative = "2.1.1"
@@ -34,6 +38,9 @@ fern = { version = "0.6", features = ["colored"] }
 log = "0.4"
 crc = "1.8.1"
 better-panic = "0.2.0"
+fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "1415756c41a3e1b2e6596b283d4c55c82a9378b4" }
+uuid_macros = { path = "uuid_macros" }
+phf = "0.8"
 
 [dependencies.uuid]
 version = "0.8.1"

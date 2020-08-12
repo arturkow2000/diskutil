@@ -52,21 +52,41 @@ impl VhdDisk {
         let dynamic_header = DynamicHeader::decode(&dynamic_header_encoded)?;
         debug!("Dynamic header:\n{}", dynamic_header);
 
-        let mut bat = Vec::with_capacity(dynamic_header.max_table_entries as usize);
-        reader.seek(SeekFrom::Start(dynamic_header.bat_offset))?;
-        for _ in 0..dynamic_header.max_table_entries as usize {
-            bat.push(reader.read_u32::<BigEndian>()?);
-        }
-
         let block_size = dynamic_header.block_size;
         let bitmap_size = ((block_size / (8 * 512)) + 511) & !511;
-        // FIXME: use chs for size calculation
-        let max_disk_size =
-            dynamic_header.max_table_entries as usize * dynamic_header.block_size as usize;
-        let free_data_block_offset = round_up!(
+        debug!("Bitmap size : {}", bitmap_size);
+
+        let mut bat = Vec::with_capacity(dynamic_header.max_table_entries as usize);
+        reader.seek(SeekFrom::Start(dynamic_header.bat_offset))?;
+        let mut free_data_block_offset = round_up!(
             dynamic_header.bat_offset + bat.len() as u64 * 4,
             SECTOR_SIZE as u64
         );
+        for i in 0..dynamic_header.max_table_entries as usize {
+            let entry = reader.read_u32::<BigEndian>()?;
+            bat.push(entry);
+            if entry != 0xFFFFFFFF {
+                let next =
+                    entry as u64 * SECTOR_SIZE as u64 + bitmap_size as u64 + block_size as u64;
+                if next > free_data_block_offset {
+                    free_data_block_offset = next;
+                }
+
+                let offset = entry as u64 * SECTOR_SIZE as u64 + bitmap_size as u64;
+                // TODO: check if regions overlap
+                trace!(
+                    "BAT#{:<8} => {:#x}   {{{:#x} - {:#x}}}",
+                    i,
+                    entry,
+                    offset,
+                    offset + block_size as u64 - 1
+                );
+            }
+        }
+
+        // FIXME: use chs for size calculation
+        let max_disk_size =
+            dynamic_header.max_table_entries as usize * dynamic_header.block_size as usize;
 
         Ok(Self {
             backend: reader.into_inner(),
@@ -184,6 +204,8 @@ impl VhdDisk {
 
         let bat_value = (self.free_data_block_offset / SECTOR_SIZE as u64) as u32;
         self.bat[bat_index] = bat_value;
+
+        debug!("allocating block => BAT#{} = {}", bat_index, bat_value);
 
         let mut bitmap: Vec<u8> = Vec::new();
         bitmap.resize_with(self.bitmap_size as usize, || 0xff);

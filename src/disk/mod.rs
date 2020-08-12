@@ -58,7 +58,7 @@ pub struct FileBackend {
     data_length: u64,
 }
 impl FileBackend {
-    pub fn new(file: File) -> Result<Box<dyn Backend>> {
+    pub fn new(file: File) -> Result<Box<Self>> {
         let m = file.metadata()?;
 
         Ok(Box::new(Self {
@@ -164,4 +164,111 @@ pub fn open_disk(
         DiskFormat::RAW => Box::new(raw::RawDisk::open_with_argmap(backend, &args)),
         DiskFormat::VHD => Box::new(vhd::VhdDisk::open_with_argmap(backend, &args)?),
     })
+}
+
+pub struct Region<'a> {
+    parent: &'a mut dyn Disk,
+    start: u64,
+    end: u64,
+    cursor: u64,
+}
+
+impl<'a> Region<'a> {
+    pub fn new(parent: &'a mut dyn Disk, start_lba: u64, end_lba: u64) -> Self {
+        let disk_size = parent.max_disk_size();
+        let sector_size = parent.block_size();
+
+        let start = start_lba * sector_size as u64;
+        let end = end_lba * sector_size as u64;
+        let region_size = (end_lba - start_lba + 1) * sector_size as u64;
+
+        assert!(start + region_size < disk_size);
+
+        Self {
+            parent,
+            start,
+            end,
+            cursor: 0,
+        }
+    }
+}
+
+impl<'a> io::Read for Region<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let s = self.start + self.cursor;
+        if s > self.end {
+            return Ok(0);
+        }
+
+        let l = buf.len() as u64;
+        let mut e = s + l - 1;
+        if e > self.end {
+            e = self.end;
+        }
+        let l = e - s + 1;
+
+        self.parent.seek(io::SeekFrom::Start(s))?;
+        let r = self.parent.read(&mut buf[..l.try_into().unwrap()])?;
+        self.cursor += r as u64;
+
+        Ok(r)
+    }
+}
+
+impl<'a> io::Seek for Region<'a> {
+    fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+        match pos {
+            io::SeekFrom::Start(x) => self.cursor = x,
+            //io::SeekFrom::End(x) => self.cursor = self.end + x,
+            io::SeekFrom::Current(x) => self.cursor = self.cursor.wrapping_add(x as u64),
+            _ => todo!(),
+        }
+
+        Ok(self.cursor)
+    }
+}
+
+impl<'a> io::Write for Region<'a> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let s = self.start + self.cursor;
+        if s > self.end {
+            return Ok(0);
+        }
+
+        let l = buf.len() as u64;
+        let mut e = s + l - 1;
+        if e > self.end {
+            e = self.end;
+        }
+        let l = e - s + 1;
+
+        self.parent.seek(io::SeekFrom::Start(s))?;
+        let w = self.parent.write(&buf[..l.try_into().unwrap()])?;
+        self.cursor += w as u64;
+
+        Ok(w)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.parent.flush()
+    }
+}
+
+impl<'a> Disk for Region<'a> {}
+
+impl<'a> Info for Region<'a> {
+    fn disk_format(&self) -> DiskFormat {
+        self.parent.disk_format()
+    }
+    fn max_disk_size(&self) -> u64 {
+        self.end - self.start + 1
+    }
+    fn disk_size(&self) -> u64 {
+        todo!()
+    }
+    fn block_size(&self) -> u32 {
+        self.parent.block_size()
+    }
+    fn media_type(&self) -> MediaType {
+        self.parent.media_type()
+    }
 }
