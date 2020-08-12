@@ -1,6 +1,7 @@
 mod partition_type;
 pub use partition_type::*;
 
+use super::{Partition, PartitionTable};
 use crate::disk::Disk;
 use crate::utils::{allocate_u8_vector_uninitialized, zero_u8_slice};
 use crate::{is_power_of_2, round_up, Error, Result};
@@ -505,6 +506,20 @@ impl Gpt {
     }
 }
 
+impl PartitionTable for Gpt {
+    fn get_partition_start_end(&self, index: u32) -> Option<(u64, u64)> {
+        if let Some(x) = self.partitions.get(index as usize) {
+            if let Some(x) = x {
+                Some((x.start_lba, x.end_lba))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
 pub struct GptPartition {
     pub type_guid: Uuid,
     pub unique_guid: Uuid,
@@ -528,6 +543,15 @@ impl GptPartition {
             attributes: 0,
             partition_name: name.to_owned(),
         }
+    }
+}
+
+impl Partition for GptPartition {
+    fn start(&self) -> u64 {
+        self.start_lba
+    }
+    fn end(&self) -> u64 {
+        self.end_lba
     }
 }
 

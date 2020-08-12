@@ -7,11 +7,13 @@ mod utils;
 use chrono::{DateTime, Local};
 use clap::Clap;
 use diskutil::disk::{open_disk, DiskFormat, FileBackend, Region};
+use diskutil::part::load_partition_table;
 use diskutil::Result;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::mem;
 use std::path::{Component, PathBuf};
 use std::result;
 
@@ -37,6 +39,9 @@ struct Options {
 
     #[clap(long, parse(try_from_str))]
     pub disk_format: DiskFormat,
+
+    #[clap(short = 'p', long = "partition", default_value = "-1")]
+    pub partition: i32,
 
     #[clap(subcommand)]
     pub subcommand: SubCommand,
@@ -90,7 +95,18 @@ fn main() -> Result<()> {
         Default::default(),
     )?;
 
-    let mut fat_region = Region::new(disk.as_mut(), 0x8000, 0x1ffefff);
+    // Region::new(disk.as_mut(), 0x8000, 0x1ffefff);
+    let mut fat_region = if options.partition != -1 {
+        let pt = load_partition_table(disk.as_mut()).unwrap();
+        let (s, e) = pt
+            .get_partition_start_end(options.partition as u32)
+            .unwrap();
+        mem::drop(pt);
+        Region::new(disk.as_mut(), s, e)
+    } else {
+        let size = disk.max_disk_size() / disk.block_size() as u64;
+        Region::new(disk.as_mut(), 0, size)
+    };
     let fs = fatfs::FileSystem::new(&mut fat_region, fatfs::FsOptions::new()).unwrap();
     let root = fs.root_dir();
 
@@ -137,6 +153,7 @@ fn main() -> Result<()> {
             let mut output = OpenOptions::new()
                 .read(false)
                 .write(true)
+                .create(true)
                 .open(d.to)
                 .unwrap();
 
@@ -149,7 +166,6 @@ fn main() -> Result<()> {
                 output.write_all(&buffer[..r]).unwrap();
                 left -= r as u64;
             }
-            while left > 0 {}
         }
         SubCommand::CopyTo(d) => {
             let mut input = OpenOptions::new()

@@ -46,7 +46,7 @@ impl BpbFat32 {
                 {
                     total_read += $size as u64;
                 }
-                reader.read(&mut a)?;
+                reader.read_exact(&mut a)?;
                 a
             }};
             (u8) => {{
@@ -130,7 +130,10 @@ impl BpbFat32 {
             return Err(Error::InvalidBpb);
         }
 
-        debug_assert_eq!(total_read, Self::SIZE as u64);
+        #[cfg(debug_assertions)]
+        {
+            debug_assert_eq!(total_read, Self::SIZE as u64);
+        }
 
         Ok(Self {
             jump,

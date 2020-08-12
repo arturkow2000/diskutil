@@ -25,12 +25,11 @@ name = "gpt"
 path = "src/bin/gpt.rs"
 
 [[bin]]
-name = "fat32"
-path = "src/bin/fat32.rs"
+name = "fat"
+path = "src/bin/fat.rs"
 
 [dependencies]
 bitflags = "1.2.1"
-derivative = "2.1.1"
 byteorder = "1.3.4"
 chrono = "0.4.13"
 clap = { git = "https://github.com/clap-rs/clap", features = ["derive"] }
@@ -40,7 +39,6 @@ crc = "1.8.1"
 better-panic = "0.2.0"
 fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "1415756c41a3e1b2e6596b283d4c55c82a9378b4" }
 uuid_macros = { path = "uuid_macros" }
-phf = "0.8"
 
 [dependencies.uuid]
 version = "0.8.1"

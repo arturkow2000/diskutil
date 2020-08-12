@@ -3,11 +3,12 @@ mod utils;
 use clap::Clap;
 use diskutil::disk::{open_disk, Disk, DiskFormat, FileBackend};
 use diskutil::part::{
-    gpt::{ErrorAction, Gpt},
+    gpt::{uuid128_partition_type_guid_to_name, ErrorAction, Gpt},
     mbr::Mbr,
 };
 use diskutil::Result;
 use std::fs::OpenOptions;
+use std::mem::transmute;
 use std::path::PathBuf;
 use std::result;
 
@@ -78,20 +79,35 @@ fn main() -> Result<()> {
 }
 
 fn print_patition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
-    println!("{:<8} {:<8} {:<8}", "Start", "End", "Size");
+    println!("{:<8} {:<8} {:<8} {:<45}", "Start", "End", "Size", "Type");
     for p in &gpt.partitions {
         if let Some(p) = p {
             if let Some(size) = p
                 .end_lba
                 .checked_sub(p.start_lba)
-                .and_then(|x| Some((x + 1).saturating_mul(disk.block_size().into())))
+                .map(|x| (x + 1).saturating_mul(disk.block_size().into()))
             {
-                println!(
-                    "{:<8} {:<8} {:<8}",
-                    p.start_lba,
-                    p.end_lba,
-                    utils::size_to_string(size)
-                );
+                let t = uuid128_partition_type_guid_to_name(unsafe {
+                    transmute(p.type_guid.as_u128())
+                });
+
+                if let Some(t) = t {
+                    println!(
+                        "{:<8} {:<8} {:<8} {:<45}",
+                        p.start_lba,
+                        p.end_lba,
+                        utils::size_to_string(size),
+                        t
+                    );
+                } else {
+                    println!(
+                        "{:<8} {:<8} {:<8} {:<45}",
+                        p.start_lba,
+                        p.end_lba,
+                        utils::size_to_string(size),
+                        p.type_guid.to_string()
+                    );
+                }
             } else {
                 println!("{:<8} {:<8} ERROR: end < start", p.start_lba, p.end_lba);
             }
