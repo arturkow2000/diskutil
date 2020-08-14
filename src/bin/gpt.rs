@@ -3,9 +3,10 @@ mod utils;
 use clap::Clap;
 use diskutil::disk::{open_disk, Disk, DiskFormat, FileBackend};
 use diskutil::part::{
-    gpt::{uuid128_partition_type_guid_to_name, ErrorAction, Gpt},
+    gpt::{uuid128_partition_type_guid_to_name, ErrorAction, Gpt, GptPartition, GptPartitionType},
     mbr::Mbr,
 };
+use diskutil::region::Region;
 use diskutil::Result;
 use std::fs::OpenOptions;
 use std::mem::transmute;
@@ -41,8 +42,18 @@ struct Options {
 
 #[derive(Clap)]
 enum SubCommand {
+    #[clap(long_about = "Create new partition table")]
     Create,
     Print,
+    #[clap(long_about = "Add new partition")]
+    Add(AddOptions),
+}
+
+#[derive(Clap)]
+struct AddOptions {
+    pub start: u64,
+    #[clap(parse(try_from_str = utils::parse_size))]
+    pub size: u64,
 }
 
 fn main() -> Result<()> {
@@ -68,11 +79,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let gpt = Gpt::load(disk.as_mut(), ErrorAction::Abort)?;
+    let mut gpt = Gpt::load(disk.as_mut(), ErrorAction::Abort)?;
 
     match options.subcommand {
         SubCommand::Create => unreachable!(),
         SubCommand::Print => print_patition_table(disk.as_ref(), &gpt)?,
+        SubCommand::Add(options) => add_partition(disk.as_mut(), &mut gpt, &options)?,
     };
 
     Ok(())
@@ -113,5 +125,53 @@ fn print_patition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Result<()> {
+    let sector_size = disk.block_size() as u64;
+    if options.size % sector_size != 0 {
+        panic!("Partition size is not multiple of {}", sector_size);
+    }
+
+    let usable_region = Region::new(gpt.first_usable_lba, gpt.last_usable_lba);
+    let new_part_region = Region::new_with_size(options.start, options.size / sector_size);
+
+    if !new_part_region.belongs(&usable_region) {
+        panic!(
+            "Region {} does not belong to {}",
+            new_part_region, usable_region
+        );
+    }
+
+    for (i, p) in gpt.partitions.iter().enumerate() {
+        if let Some(p) = p {
+            let r = Region::new(p.start_lba, p.end_lba);
+            if new_part_region.overlaps(&r) {
+                panic!(
+                    "New partition would overlap with #{}: {} overlaps with {}",
+                    i, new_part_region, r
+                );
+            }
+        }
+    }
+
+    let free_entry_index = gpt
+        .partitions
+        .iter()
+        .enumerate()
+        .find(|(_, x)| x.is_none())
+        .map(|(i, _)| i)
+        .expect("No free partition slot found.");
+
+    gpt.partitions[free_entry_index] = Some(GptPartition::new(
+        GptPartitionType::MicrosoftBasicData,
+        "blablabla",
+        new_part_region.start(),
+        new_part_region.end(),
+    ));
+
+    gpt.update(disk)?;
+
     Ok(())
 }

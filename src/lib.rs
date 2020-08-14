@@ -17,6 +17,7 @@ pub mod fs;
 pub use error::*;
 
 pub mod part;
+pub mod region;
 
 #[cfg(test)]
 extern crate better_panic;
@@ -42,10 +43,5 @@ mod tests {
         }
 
         test! {"EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"};
-
-        /*assert_eq!(
-            uuid! {"EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"},
-            Uuid::from_str("EBD0A0A2-B9E5-4433-87C0-68B6B72699C7").unwrap()
-        );*/
     }
 }

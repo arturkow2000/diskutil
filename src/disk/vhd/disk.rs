@@ -59,7 +59,7 @@ impl VhdDisk {
         let mut bat = Vec::with_capacity(dynamic_header.max_table_entries as usize);
         reader.seek(SeekFrom::Start(dynamic_header.bat_offset))?;
         let mut free_data_block_offset = round_up!(
-            dynamic_header.bat_offset + bat.len() as u64 * 4,
+            dynamic_header.bat_offset + dynamic_header.max_table_entries as u64 * 4,
             SECTOR_SIZE as u64
         );
         for i in 0..dynamic_header.max_table_entries as usize {
@@ -87,6 +87,7 @@ impl VhdDisk {
         // FIXME: use chs for size calculation
         let max_disk_size =
             dynamic_header.max_table_entries as usize * dynamic_header.block_size as usize;
+        trace!("max_disk_size = {}", max_disk_size);
 
         Ok(Self {
             backend: reader.into_inner(),

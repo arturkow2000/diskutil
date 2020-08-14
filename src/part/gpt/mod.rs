@@ -7,8 +7,10 @@ use crate::utils::{allocate_u8_vector_uninitialized, zero_u8_slice};
 use crate::{is_power_of_2, round_up, Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crc::{crc32, Hasher32};
+use std::convert::TryInto;
 use std::hash::Hasher;
 use std::io::{self, BufReader, Cursor, Read, Seek, SeekFrom, Write};
+use std::mem;
 use uuid::Uuid;
 
 const GPT_HEADER_SIZE: usize = 0x5C;
@@ -310,8 +312,11 @@ impl Gpt {
 
         let disk_size = disk.max_disk_size();
         assert_eq!(disk_size % sector_size as u64, 0);
-        let alternate_lba = disk_size / sector_size as u64;
+        let alternate_lba = disk_size / sector_size as u64 - 1;
         let last_usable_lba = alternate_lba - partition_table_size_in_sectors - 1;
+
+        let disk_guid = Uuid::new_v4();
+        info!("Created new GPT with GUID: {}", disk_guid);
 
         Ok(Self {
             partitions: Vec::new(),
@@ -321,7 +326,7 @@ impl Gpt {
             alternate_lba,
             first_usable_lba,
             last_usable_lba,
-            disk_guid: Uuid::new_v4(),
+            disk_guid,
             partition_table_start,
             partition_table_entries_num,
             partition_table_entry_size,
@@ -386,6 +391,10 @@ impl Gpt {
                     );
                     zero_u8_slice(s);
                     Hasher::write(&mut crc32, s);
+                    let o = s.len().try_into().unwrap();
+                    #[allow(clippy::drop_ref)]
+                    mem::drop(s);
+                    cursor.seek(SeekFrom::Current(o)).unwrap();
                 }
             } else {
                 let position = cursor.position();

@@ -7,6 +7,7 @@ use clap::Clap;
 use diskutil::disk::vhd::VhdDisk;
 use diskutil::disk::FileBackend;
 use diskutil::Result;
+use std::convert::TryInto;
 use std::fs::File;
 use std::path::PathBuf;
 use std::result;
@@ -37,7 +38,7 @@ struct Options {
     pub file: PathBuf,
 
     #[clap(name = "size", parse(try_from_str = utils::parse_size))]
-    pub size: usize,
+    pub size: u64,
 
     #[clap(short = 't', long, parse(try_from_str = VhdType::try_parse), default_value = "dynamic")]
     pub vhd_type: VhdType,
@@ -51,7 +52,7 @@ fn main() -> Result<()> {
     let file = FileBackend::new(File::create(options.file)?)?;
 
     match options.vhd_type {
-        VhdType::Dynamic => VhdDisk::create_dynamic(file, options.size)?,
+        VhdType::Dynamic => VhdDisk::create_dynamic(file, options.size.try_into().unwrap())?,
         VhdType::Fixed => todo!("Fixed VHD disks are not implemented yet"),
     };
 

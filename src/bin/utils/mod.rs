@@ -58,8 +58,9 @@ pub fn setup_logging(verbosity_level: u32) {
         .unwrap();
 }
 
+// TODO: floating point
 #[allow(dead_code)]
-pub fn parse_size(x: &str) -> result::Result<usize, String> {
+pub fn parse_size(x: &str) -> result::Result<u64, String> {
     #[derive(Debug)]
     #[repr(u32)]
     enum Unit {
@@ -70,7 +71,7 @@ pub fn parse_size(x: &str) -> result::Result<usize, String> {
         TiB,
         EiB,
     };
-    const MULTIPLIERS: [usize; 6] = [
+    const MULTIPLIERS: [u64; 6] = [
         /* B */ 1,
         /* KiB */ 1024,
         /* MiB */ 1024 * 1024,
@@ -79,10 +80,12 @@ pub fn parse_size(x: &str) -> result::Result<usize, String> {
         /* EiB */ 1024 * 1024 * 1024 * 1024 * 1024,
     ];
 
+    let mut has_unit = false;
     let len = x.len();
     let unit = if len > 1 {
         let y = x.chars().rev().next().unwrap();
         if !y.is_digit(10) {
+            has_unit = true;
             match y.to_ascii_uppercase() {
                 'K' => Unit::KiB,
                 'M' => Unit::MiB,
@@ -98,7 +101,11 @@ pub fn parse_size(x: &str) -> result::Result<usize, String> {
         Unit::B
     };
 
-    let n = usize::from_str_radix(&x[..len - 1], 10).map_err(|e| e.to_string())?;
+    let n = if has_unit {
+        u64::from_str_radix(&x[..len - 1], 10).map_err(|e| e.to_string())?
+    } else {
+        u64::from_str_radix(&x, 10).map_err(|e| e.to_string())?
+    };
     if let Some(n) = n.checked_mul(MULTIPLIERS[unit as usize]) {
         Ok(n)
     } else {
@@ -106,6 +113,7 @@ pub fn parse_size(x: &str) -> result::Result<usize, String> {
     }
 }
 
+// TODO: floating point
 #[allow(dead_code)]
 #[allow(non_upper_case_globals)]
 pub fn size_to_string(s: u64) -> String {
@@ -122,5 +130,19 @@ pub fn size_to_string(s: u64) -> String {
         1073741824..=1099511627775 => format!("{} GiB", s / 1073741824),
         1099511627776..=1125899906842623 => format!("{} TiB", s / 1125899906842624),
         1125899906842624..=u64::MAX => format!("{} EiB", s / 1125899906842624),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_size;
+    #[test]
+    fn test_parse_size() {
+        assert_eq!(parse_size("432").unwrap(), 432);
+        assert_eq!(parse_size("432K").unwrap(), 432 * 1024);
+        assert_eq!(parse_size("432M").unwrap(), 432 * 1024 * 1024);
+        assert_eq!(parse_size("7G").unwrap(), 7 * 1024 * 1024 * 1024);
+        assert_eq!(parse_size("0").unwrap(), 0);
+        assert_eq!(parse_size("0E").unwrap(), 0);
     }
 }

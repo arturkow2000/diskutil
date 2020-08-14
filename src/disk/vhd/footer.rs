@@ -88,6 +88,11 @@ impl Footer {
         let original_size = read!(u64);
         let current_size = read!(u64);
         let disk_geometry = read!(u32);
+        let c = (disk_geometry & 0xffff) as u16;
+        let h = ((disk_geometry >> 16) & 0xff) as u8;
+        let s = ((disk_geometry >> 24) & 0xff) as u8;
+        trace!("CHS: {} {} {}", c, h, s);
+
         let disk_type = DiskType::try_from(read!(u32))?;
         let checksum = read!(u32, nohash);
         let uuid = Uuid::from_u128(read!(u128, native));
