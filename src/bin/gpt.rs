@@ -47,13 +47,23 @@ enum SubCommand {
     Print,
     #[clap(long_about = "Add new partition")]
     Add(AddOptions),
+    #[clap(long_about = "Delete partition")]
+    Delete(DeleteOptions),
 }
 
 #[derive(Clap)]
 struct AddOptions {
     pub start: u64,
-    #[clap(parse(try_from_str = utils::parse_size))]
+    #[clap(parse(try_from_str = utils::parse_size), long_about = "Partition start in sectors")]
     pub size: u64,
+    #[clap(short, long, default_value = " ")]
+    pub name: String,
+}
+
+#[derive(Clap)]
+struct DeleteOptions {
+    #[clap(parse(try_from_str))]
+    pub id: utils::PartitionId,
 }
 
 fn main() -> Result<()> {
@@ -85,14 +95,23 @@ fn main() -> Result<()> {
         SubCommand::Create => unreachable!(),
         SubCommand::Print => print_patition_table(disk.as_ref(), &gpt)?,
         SubCommand::Add(options) => add_partition(disk.as_mut(), &mut gpt, &options)?,
+        SubCommand::Delete(options) => delete_partition(disk.as_mut(), &mut gpt, &options)?,
     };
 
     Ok(())
 }
 
 fn print_patition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
-    println!("{:<8} {:<8} {:<8} {:<45}", "Start", "End", "Size", "Type");
-    for p in &gpt.partitions {
+    println!(
+        "{:<5} {:<8} {:<8} {:<8} {:<38} {:<45} {}",
+        "Index", "Start", "End", "Size", "Unique GUID", "Type", "Name"
+    );
+    for (i, p) in gpt
+        .partitions
+        .iter()
+        .enumerate()
+        .map(|(i, x)| (i, x.as_ref()))
+    {
         if let Some(p) = p {
             if let Some(size) = p
                 .end_lba
@@ -105,23 +124,32 @@ fn print_patition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
 
                 if let Some(t) = t {
                     println!(
-                        "{:<8} {:<8} {:<8} {:<45}",
+                        "{:<5} {:<8} {:<8} {:<8} {{{:<38X}}} {:<45} {}",
+                        i,
                         p.start_lba,
                         p.end_lba,
                         utils::size_to_string(size),
-                        t
+                        p.unique_guid,
+                        t,
+                        &p.partition_name
                     );
                 } else {
                     println!(
-                        "{:<8} {:<8} {:<8} {:<45}",
+                        "{:<5} {:<8} {:<8} {:<8} {{{:<38X}}} {:<45} {}",
+                        i,
                         p.start_lba,
                         p.end_lba,
                         utils::size_to_string(size),
-                        p.type_guid.to_string()
+                        p.unique_guid,
+                        p.type_guid.to_string(),
+                        &p.partition_name
                     );
                 }
             } else {
-                println!("{:<8} {:<8} ERROR: end < start", p.start_lba, p.end_lba);
+                println!(
+                    "{:<5} {:<8} {:<8} ERROR: end < start",
+                    i, p.start_lba, p.end_lba
+                );
             }
         }
     }
@@ -134,6 +162,7 @@ fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Re
         panic!("Partition size is not multiple of {}", sector_size);
     }
 
+    // TODO: move verification into library
     let usable_region = Region::new(gpt.first_usable_lba, gpt.last_usable_lba);
     let new_part_region = Region::new_with_size(options.start, options.size / sector_size);
 
@@ -166,11 +195,26 @@ fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Re
 
     gpt.partitions[free_entry_index] = Some(GptPartition::new(
         GptPartitionType::MicrosoftBasicData,
-        "blablabla",
+        &options.name,
         new_part_region.start(),
         new_part_region.end(),
     ));
 
+    gpt.update(disk)?;
+
+    Ok(())
+}
+
+fn delete_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &DeleteOptions) -> Result<()> {
+    let partition_index = match options.id {
+        utils::PartitionId::Index(i) => {
+            gpt.get_partition(i).expect("No such partition.");
+            i
+        }
+        utils::PartitionId::Guid(g) => gpt.find_partition_by_guid(g).unwrap().0,
+    };
+
+    gpt.partitions[partition_index as usize] = None;
     gpt.update(disk)?;
 
     Ok(())

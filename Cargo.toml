@@ -37,7 +37,7 @@ fern = { version = "0.6", features = ["colored"] }
 log = "0.4"
 crc = "1.8.1"
 better-panic = "0.2.0"
-fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "1415756c41a3e1b2e6596b283d4c55c82a9378b4" }
+fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "1415756c41a3e1b2e6596b283d4c55c82a9378b4", features = ["std"] }
 uuid_macros = { path = "uuid_macros" }
 
 [dependencies.uuid]

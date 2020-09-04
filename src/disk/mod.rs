@@ -221,7 +221,7 @@ impl<'a> io::Seek for Region<'a> {
             io::SeekFrom::Start(x) => self.cursor = x,
             //io::SeekFrom::End(x) => self.cursor = self.end + x,
             io::SeekFrom::Current(x) => self.cursor = self.cursor.wrapping_add(x as u64),
-            _ => todo!(),
+            io::SeekFrom::End(x) => self.cursor = self.max_disk_size() - x as u64,
         }
 
         Ok(self.cursor)

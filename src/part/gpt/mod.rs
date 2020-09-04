@@ -513,6 +513,31 @@ impl Gpt {
 
         Ok(())
     }
+
+    pub fn find_partition_by_guid(&self, guid: Uuid) -> Result<(u32, &GptPartition)> {
+        for (i, x) in self
+            .partitions
+            .iter()
+            .enumerate()
+            .map(|(i, x)| (i, x.as_ref()))
+        {
+            if let Some(x) = x {
+                if x.unique_guid == guid {
+                    return Ok((i as u32, x));
+                }
+            }
+        }
+
+        Err(Error::NotFound)
+    }
+
+    pub fn get_partition(&self, index: u32) -> Option<&GptPartition> {
+        if let Some(p) = self.partitions.get(index as usize) {
+            p.as_ref()
+        } else {
+            None
+        }
+    }
 }
 
 impl PartitionTable for Gpt {
@@ -526,6 +551,23 @@ impl PartitionTable for Gpt {
         } else {
             None
         }
+    }
+
+    fn find_partition_by_guid(&self, guid: Uuid) -> Result<(u32, &dyn Partition)> {
+        for (i, x) in self
+            .partitions
+            .iter()
+            .enumerate()
+            .map(|(i, x)| (i, x.as_ref()))
+        {
+            if let Some(x) = x {
+                if x.unique_guid == guid {
+                    return Ok((i as u32, x));
+                }
+            }
+        }
+
+        Err(Error::NotFound)
     }
 }
 

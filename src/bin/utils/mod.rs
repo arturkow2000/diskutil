@@ -1,4 +1,8 @@
+#![allow(dead_code)]
+
+use std::str::FromStr;
 use std::{io, result};
+use uuid::Uuid;
 
 pub fn setup_logging(verbosity_level: u32) {
     use fern::colors::{Color, ColoredLevelConfig};
@@ -59,7 +63,6 @@ pub fn setup_logging(verbosity_level: u32) {
 }
 
 // TODO: floating point
-#[allow(dead_code)]
 pub fn parse_size(x: &str) -> result::Result<u64, String> {
     #[derive(Debug)]
     #[repr(u32)]
@@ -113,8 +116,30 @@ pub fn parse_size(x: &str) -> result::Result<u64, String> {
     }
 }
 
+pub enum PartitionId {
+    Guid(Uuid),
+    Index(u32),
+}
+
+impl FromStr for PartitionId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.chars().next().map_or(false, |x| x == '{')
+            && s.chars().rev().next().map_or(false, |x| x == '}')
+        {
+            Ok(Self::Guid(
+                Uuid::from_str(&s[1..s.len() - 1]).map_err(|e| e.to_string())?,
+            ))
+        } else {
+            Ok(Self::Index(
+                u32::from_str_radix(s, 10).map_err(|e| e.to_string())?,
+            ))
+        }
+    }
+}
+
 // TODO: floating point
-#[allow(dead_code)]
 #[allow(non_upper_case_globals)]
 pub fn size_to_string(s: u64) -> String {
     const KiB: u64 = 1024;
