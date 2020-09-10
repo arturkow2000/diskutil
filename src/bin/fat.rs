@@ -145,7 +145,7 @@ fn main() -> Result<()> {
 
         fatfs::FileSystem::new(&mut region, fatfs::FsOptions::new()).unwrap()
     } else {
-        let size = disk.max_disk_size() / disk.block_size() as u64;
+        let size = disk.max_disk_size() / disk.block_size() as u64 - 1;
         region = Region::new(disk.as_mut(), 0, size);
         if let SubCommand::Format(p) = options.subcommand {
             return fat_format(&mut region, &p);

@@ -182,7 +182,7 @@ impl<'a> Region<'a> {
         let end = end_lba * sector_size as u64;
         let region_size = (end_lba - start_lba + 1) * sector_size as u64;
 
-        assert!(start + region_size < disk_size);
+        assert!(start + region_size <= disk_size);
 
         Self {
             parent,
