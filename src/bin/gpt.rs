@@ -103,8 +103,8 @@ fn main() -> Result<()> {
 
 fn print_patition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
     println!(
-        "{:<5} {:<8} {:<8} {:<8} {:<38} {:<45} {}",
-        "Index", "Start", "End", "Size", "Unique GUID", "Type", "Name"
+        "{:<5} {:<8} {:<8} {:<8} {:<38} {:<45} Name",
+        "Index", "Start", "End", "Size", "Unique GUID", "Type"
     );
     for (i, p) in gpt
         .partitions

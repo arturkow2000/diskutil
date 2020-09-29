@@ -6,7 +6,7 @@ mod utils;
 
 use chrono::{DateTime, Local};
 use clap::Clap;
-use diskutil::disk::{open_disk, DiskFormat, FileBackend, Region};
+use diskutil::disk::{open_disk, DiskFormat, DiskSlice, FileBackend};
 use diskutil::part::load_partition_table;
 use diskutil::Result;
 use std::cmp::min;
@@ -128,7 +128,7 @@ fn main() -> Result<()> {
         Default::default(),
     )?;
 
-    let mut region: Region;
+    let mut slice: DiskSlice;
     let fs = if let Some(partition) = options.partition {
         let pt = load_partition_table(disk.as_mut()).unwrap();
         let (s, e) = match partition {
@@ -138,19 +138,19 @@ fn main() -> Result<()> {
                 (x.1.start(), x.1.end())
             }
         };
-        region = Region::new(disk.as_mut(), s, e);
+        slice = DiskSlice::new(disk.as_mut(), s, e);
         if let SubCommand::Format(p) = options.subcommand {
-            return fat_format(&mut region, &p);
+            return fat_format(&mut slice, &p);
         }
 
-        fatfs::FileSystem::new(&mut region, fatfs::FsOptions::new()).unwrap()
+        fatfs::FileSystem::new(&mut slice, fatfs::FsOptions::new()).unwrap()
     } else {
         let size = disk.max_disk_size() / disk.block_size() as u64 - 1;
-        region = Region::new(disk.as_mut(), 0, size);
+        slice = DiskSlice::new(disk.as_mut(), 0, size);
         if let SubCommand::Format(p) = options.subcommand {
-            return fat_format(&mut region, &p);
+            return fat_format(&mut slice, &p);
         }
-        fatfs::FileSystem::new(&mut region, fatfs::FsOptions::new()).unwrap()
+        fatfs::FileSystem::new(&mut slice, fatfs::FsOptions::new()).unwrap()
     };
     let root = fs.root_dir();
 
