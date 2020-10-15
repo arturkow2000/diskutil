@@ -68,25 +68,18 @@ impl<'a> Seek for DiskSlice<'a> {
 }
 
 impl<'a> Write for DiskSlice<'a> {
-    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-        /*let s = self.start + self.cursor;
-        if s > self.end {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.parent.seek(SeekFrom::Start(self.start + self.cursor))?;
+        let total_available = self.end.saturating_sub(self.cursor + self.start);
+
+        if total_available == 0 {
             return Ok(0);
         }
 
-        let l = buf.len() as u64;
-        let mut e = s + l - 1;
-        if e > self.end {
-            e = self.end;
-        }
-        let l = e - s + 1;
-
-        self.parent.seek(SeekFrom::Start(s))?;
-        let w = self.parent.write(&buf[..l.try_into().unwrap()])?;
+        let to_write = min(total_available, buf.len() as u64);
+        let w = self.parent.write(&buf[..to_write as usize])?;
         self.cursor += w as u64;
-
-        Ok(w)*/
-        todo!()
+        Ok(w)
     }
     fn flush(&mut self) -> io::Result<()> {
         self.parent.flush()
@@ -213,5 +206,17 @@ mod tests {
         slice.seek(SeekFrom::Current(-4)).unwrap();
         test_read_partial!(slice, 20, b"A4N1");
         test_read_partial!(slice, 20, b"");
+    }
+
+    #[test]
+    fn test_disk_slice_write() {
+        let mut disk = create_test_disk();
+        let mut slice = DiskSlice::new(&mut disk, 1, 2);
+        slice.write_all(b"test").unwrap();
+        slice.seek(SeekFrom::Start(0)).unwrap();
+        assert_eq!(&read!(slice, 4), b"test");
+
+        assert_eq!(slice.seek(SeekFrom::Start(510)).unwrap(), 510);
+        assert_eq!(slice.write(b"443434343434").unwrap(), 2);
     }
 }
