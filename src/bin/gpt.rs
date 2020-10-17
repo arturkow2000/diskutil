@@ -93,7 +93,7 @@ fn main() -> Result<()> {
 
     match options.subcommand {
         SubCommand::Create => unreachable!(),
-        SubCommand::Print => print_patition_table(disk.as_ref(), &gpt)?,
+        SubCommand::Print => print_partition_table(disk.as_ref(), &gpt)?,
         SubCommand::Add(options) => add_partition(disk.as_mut(), &mut gpt, &options)?,
         SubCommand::Delete(options) => delete_partition(disk.as_mut(), &mut gpt, &options)?,
     };
@@ -101,7 +101,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn print_patition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
+fn print_partition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
     println!(
         "{:<5} {:<8} {:<8} {:<8} {:<38} {:<45} Name",
         "Index", "Start", "End", "Size", "Unique GUID", "Type"

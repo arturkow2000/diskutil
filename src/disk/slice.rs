@@ -69,7 +69,8 @@ impl<'a> Seek for DiskSlice<'a> {
 
 impl<'a> Write for DiskSlice<'a> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.parent.seek(SeekFrom::Start(self.start + self.cursor))?;
+        self.parent
+            .seek(SeekFrom::Start(self.start + self.cursor))?;
         let total_available = self.end.saturating_sub(self.cursor + self.start);
 
         if total_available == 0 {
