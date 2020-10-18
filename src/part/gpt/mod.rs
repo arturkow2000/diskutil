@@ -45,7 +45,7 @@ impl Gpt {
 
     // TODO: support loading backup
     pub fn load(disk: &mut dyn Disk, error_action: ErrorAction) -> Result<Self> {
-        let sector_size = disk.block_size();
+        let sector_size = disk.sector_size();
         let mut reader = BufReader::with_capacity(sector_size as usize, disk);
         let mut crc32 = crc32::Digest::new(crc32::IEEE);
 
@@ -298,7 +298,7 @@ impl Gpt {
         Self::create_ex(disk, 128)
     }
     pub fn create_ex(disk: &mut dyn Disk, max_entries: u32) -> Result<Self> {
-        let sector_size = disk.block_size();
+        let sector_size = disk.sector_size();
 
         let partition_table_start = 2;
         let partition_table_entries_num = max_entries;
@@ -310,7 +310,7 @@ impl Gpt {
         ) / sector_size as u64;
         let first_usable_lba = partition_table_start + partition_table_size_in_sectors;
 
-        let disk_size = disk.max_disk_size();
+        let disk_size = disk.disk_size();
         assert_eq!(disk_size % sector_size as u64, 0);
         let alternate_lba = disk_size / sector_size as u64 - 1;
         let last_usable_lba = alternate_lba - partition_table_size_in_sectors - 1;
@@ -335,7 +335,7 @@ impl Gpt {
     }
 
     pub fn update(&mut self, disk: &mut dyn Disk) -> Result<()> {
-        let sector_size = disk.block_size();
+        let sector_size = disk.sector_size();
         let mut cursor = Cursor::new(allocate_u8_vector_uninitialized(round_up!(
             self.partition_table_entries_num as usize * self.partition_table_entry_size as usize,
             sector_size as usize

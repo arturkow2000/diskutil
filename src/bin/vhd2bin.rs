@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 
 use diskutil::disk::vhd::VhdDisk;
-use diskutil::disk::{FileBackend, Info};
+use diskutil::disk::{Disk, FileBackend};
 use diskutil::Result;
 
 fn main() -> Result<()> {
@@ -26,8 +26,7 @@ fn main() -> Result<()> {
     buf.reserve(1024 * 1024 * 16);
     unsafe { buf.set_len(buf.capacity()) };
 
-    let block_size = disk.block_size();
-    assert_eq!(buf.len() % block_size as usize, 0);
+    assert_eq!(buf.len() % disk.sector_size() as usize, 0);
 
     loop {
         let n = disk.read(buf.as_mut_slice())?;

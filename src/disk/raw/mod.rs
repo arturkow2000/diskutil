@@ -1,4 +1,4 @@
-use crate::disk::{ArgumentMap, Backend, Disk, DiskFormat, Info, MediaType};
+use crate::disk::{ArgumentMap, Backend, Disk, DiskFormat, MediaType};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
 pub struct RawDisk {
@@ -52,22 +52,17 @@ impl Write for RawDisk {
     }
 }
 
-impl Info for RawDisk {
-    fn disk_format(&self) -> DiskFormat {
-        DiskFormat::RAW
-    }
-    fn max_disk_size(&self) -> u64 {
-        self.disk_size
-    }
+impl Disk for RawDisk {
     fn disk_size(&self) -> u64 {
         self.disk_size
     }
-    fn block_size(&self) -> u32 {
+    fn sector_size(&self) -> u32 {
         self.sector_size
     }
     fn media_type(&self) -> MediaType {
         self.media_type
     }
+    fn disk_format(&self) -> DiskFormat {
+        DiskFormat::RAW
+    }
 }
-
-impl Disk for RawDisk {}

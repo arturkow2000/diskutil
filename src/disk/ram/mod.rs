@@ -1,4 +1,4 @@
-use crate::disk::{Disk, DiskFormat, Info, MediaType};
+use crate::disk::{Disk, DiskFormat, MediaType};
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 
 pub struct RamDisk {
@@ -66,22 +66,17 @@ impl Write for RamDisk {
     }
 }
 
-impl Info for RamDisk {
-    fn disk_format(&self) -> DiskFormat {
-        DiskFormat::RAW
-    }
-    fn max_disk_size(&self) -> u64 {
-        self.buffer.get_ref().len() as u64
-    }
+impl Disk for RamDisk {
     fn disk_size(&self) -> u64 {
         self.buffer.get_ref().len() as u64
     }
-    fn block_size(&self) -> u32 {
+    fn sector_size(&self) -> u32 {
         self.sector_size
     }
     fn media_type(&self) -> MediaType {
         self.media_type
     }
+    fn disk_format(&self) -> DiskFormat {
+        DiskFormat::RAW
+    }
 }
-
-impl Disk for RamDisk {}

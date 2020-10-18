@@ -12,6 +12,7 @@ use std::fs::OpenOptions;
 use std::mem::transmute;
 use std::path::PathBuf;
 use std::result;
+use uuid::Uuid;
 
 fn parse_sector_size(x: &str) -> result::Result<usize, String> {
     let x = usize::from_str_radix(x, 10).map_err(|e| e.to_string())?;
@@ -116,7 +117,7 @@ fn print_partition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
             if let Some(size) = p
                 .end_lba
                 .checked_sub(p.start_lba)
-                .map(|x| (x + 1).saturating_mul(disk.block_size().into()))
+                .map(|x| (x + 1).saturating_mul(disk.sector_size().into()))
             {
                 let t = uuid128_partition_type_guid_to_name(unsafe {
                     transmute(p.type_guid.as_u128())
@@ -157,7 +158,7 @@ fn print_partition_table(disk: &dyn Disk, gpt: &Gpt) -> Result<()> {
 }
 
 fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Result<()> {
-    let sector_size = disk.block_size() as u64;
+    let sector_size = disk.sector_size() as u64;
     if options.size % sector_size != 0 {
         panic!("Partition size is not multiple of {}", sector_size);
     }

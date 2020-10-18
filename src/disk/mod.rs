@@ -44,15 +44,13 @@ pub enum MediaType {
     CDROM,
 }
 
-pub trait Info {
-    fn disk_format(&self) -> DiskFormat;
-    fn max_disk_size(&self) -> u64;
+pub trait Disk: io::Read + io::Seek + io::Write {
+    /// Returns disk size in bytes
     fn disk_size(&self) -> u64;
-    fn block_size(&self) -> u32;
+    fn sector_size(&self) -> u32;
     fn media_type(&self) -> MediaType;
+    fn disk_format(&self) -> DiskFormat;
 }
-
-pub trait Disk: io::Read + io::Seek + io::Write + Info {}
 
 pub trait Backend: io::Read + io::Seek + io::Write {
     fn data_length(&self) -> u64;

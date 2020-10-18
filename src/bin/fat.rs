@@ -145,7 +145,7 @@ fn main() -> Result<()> {
 
         fatfs::FileSystem::new(&mut slice, fatfs::FsOptions::new()).unwrap()
     } else {
-        let size = disk.max_disk_size() / disk.block_size() as u64 - 1;
+        let size = disk.disk_size() / disk.sector_size() as u64 - 1;
         slice = DiskSlice::new(disk.as_mut(), 0, size);
         if let SubCommand::Format(p) = options.subcommand {
             return fat_format(&mut slice, &p);

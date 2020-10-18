@@ -5,7 +5,7 @@ use std::env::args;
 use std::fs::File;
 
 use diskutil::disk::vhd::VhdDisk;
-use diskutil::disk::{FileBackend, Info};
+use diskutil::disk::FileBackend;
 use diskutil::Result;
 
 fn main() -> Result<()> {
@@ -14,11 +14,7 @@ fn main() -> Result<()> {
     args.next().unwrap();
 
     let file = FileBackend::new(File::open(args.next().expect("Usage: vhdinfo file"))?)?;
-    let disk = VhdDisk::open(file)?;
+    let _disk = VhdDisk::open(file)?;
 
-    let max_disk_size = disk.max_disk_size();
-
-    println!("Max disk size    : {}", max_disk_size);
-
-    Ok(())
+    unimplemented!()
 }

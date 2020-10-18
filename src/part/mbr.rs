@@ -141,7 +141,7 @@ impl<'a> Mbr<'a> {
         let mut partitions: [Option<MbrPartition>; 4] = [None, None, None, None];
         for (i, x) in [0x01BE, 0x01CE, 0x01DE, 0x01EE].iter().copied().enumerate() {
             partitions[i] = MbrPartition::decode(
-                disk.block_size() as u32,
+                disk.sector_size() as u32,
                 &buf[x..x + 0x10].try_into().unwrap(),
             );
         }
@@ -177,8 +177,8 @@ impl<'a> Mbr<'a> {
     }
 
     pub fn create_protective(disk: &'a mut dyn Disk) -> Self {
-        let sector_size = disk.block_size();
-        let size = disk.max_disk_size();
+        let sector_size = disk.sector_size();
+        let size = disk.disk_size();
         let num_sectors = size / sector_size as u64;
         Self {
             partitions: [

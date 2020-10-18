@@ -1,4 +1,4 @@
-use crate::disk::{Disk, DiskFormat, Info, MediaType};
+use crate::disk::{Disk, DiskFormat, MediaType};
 use std::cmp::min;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
@@ -11,8 +11,8 @@ pub struct DiskSlice<'a> {
 
 impl<'a> DiskSlice<'a> {
     pub fn new(parent: &'a mut dyn Disk, start_lba: u64, end_lba: u64) -> Self {
-        let disk_size = parent.max_disk_size();
-        let sector_size = parent.block_size();
+        let disk_size = parent.disk_size();
+        let sector_size = parent.sector_size();
 
         let start = start_lba * sector_size as u64;
         let end = end_lba * sector_size as u64;
@@ -31,7 +31,6 @@ impl<'a> DiskSlice<'a> {
     pub fn parent(&self) -> &dyn Disk {
         self.parent
     }
-
     pub fn parent_mut(&mut self) -> &mut dyn Disk {
         self.parent
     }
@@ -87,25 +86,20 @@ impl<'a> Write for DiskSlice<'a> {
     }
 }
 
-impl<'a> Info for DiskSlice<'a> {
-    fn disk_format(&self) -> DiskFormat {
-        self.parent.disk_format()
-    }
-    fn max_disk_size(&self) -> u64 {
+impl<'a> Disk for DiskSlice<'a> {
+    fn disk_size(&self) -> u64 {
         self.end - self.start
     }
-    fn disk_size(&self) -> u64 {
-        todo!()
-    }
-    fn block_size(&self) -> u32 {
-        self.parent.block_size()
+    fn sector_size(&self) -> u32 {
+        self.parent.sector_size()
     }
     fn media_type(&self) -> MediaType {
         self.parent.media_type()
     }
+    fn disk_format(&self) -> DiskFormat {
+        self.parent.disk_format()
+    }
 }
-
-impl<'a> Disk for DiskSlice<'a> {}
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,5 @@
 use crate::disk::vhd::{dynamic_header::DynamicHeader, footer::Footer, DiskType as VhdDiskType};
-use crate::disk::{ArgumentMap, Backend, Disk, DiskFormat, Info, MediaType};
+use crate::disk::{ArgumentMap, Backend, Disk, DiskFormat, MediaType};
 use crate::{is_power_of_2, round_up, u8_array_uninitialized, utils::zero_u8_slice, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::cmp::min;
@@ -238,21 +238,18 @@ impl VhdDisk {
     }
 }
 
-impl Info for VhdDisk {
-    fn disk_format(&self) -> DiskFormat {
-        DiskFormat::VHD
-    }
-    fn max_disk_size(&self) -> u64 {
+impl Disk for VhdDisk {
+    fn disk_size(&self) -> u64 {
         self.max_disk_size as u64
     }
-    fn disk_size(&self) -> u64 {
-        todo!()
-    }
-    fn block_size(&self) -> u32 {
+    fn sector_size(&self) -> u32 {
         512
     }
     fn media_type(&self) -> MediaType {
         MediaType::HDD
+    }
+    fn disk_format(&self) -> DiskFormat {
+        DiskFormat::VHD
     }
 }
 
@@ -346,5 +343,3 @@ impl Write for VhdDisk {
         self.backend.flush()
     }
 }
-
-impl Disk for VhdDisk {}
