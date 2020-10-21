@@ -12,6 +12,7 @@ use std::fs::OpenOptions;
 use std::mem::transmute;
 use std::path::PathBuf;
 use std::result;
+use std::str::FromStr;
 use uuid::Uuid;
 
 fn parse_sector_size(x: &str) -> result::Result<usize, String> {
@@ -21,6 +22,21 @@ fn parse_sector_size(x: &str) -> result::Result<usize, String> {
     }
 
     Ok(x)
+}
+
+fn parse_partition_type(s: &str) -> result::Result<Uuid, String> {
+    if s.chars().next().map_or(false, |x| x == '{')
+        && s.chars().rev().next().map_or(false, |x| x == '}')
+    {
+        Ok(Uuid::from_str(&s[1..s.len() - 1]).map_err(|e| e.to_string())?)
+    } else {
+        match s.to_lowercase().as_str() {
+            "msbasic" => Ok(GptPartitionType::MicrosoftBasicData.to_guid()),
+            "msreserved" => Ok(GptPartitionType::MicrosoftReserved.to_guid()),
+            "efi" | "esp" => Ok(GptPartitionType::EFISystemPartition.to_guid()),
+            _ => Err("Unknown partition type".to_owned()),
+        }
+    }
 }
 
 #[derive(Clap)]
@@ -50,6 +66,8 @@ enum SubCommand {
     Add(AddOptions),
     #[clap(long_about = "Delete partition")]
     Delete(DeleteOptions),
+    #[clap(long_about = "Modify partition")]
+    Modify(ModifyOptions),
 }
 
 #[derive(Clap)]
@@ -57,14 +75,30 @@ struct AddOptions {
     pub start: u64,
     #[clap(parse(try_from_str = utils::parse_size), long_about = "Partition start in sectors")]
     pub size: u64,
-    #[clap(short, long, default_value = " ")]
-    pub name: String,
+    #[clap(short, long)]
+    pub name: Option<String>,
+    #[clap(short = 'u', long = "guid", long_about = "Unique GUID")]
+    pub unique_guid: Option<Uuid>,
+    #[clap(short = 't', long = "type", parse(try_from_str = parse_partition_type), long_about = "Type GUID or one of: msbasic, msreserved, esp")]
+    pub type_guid: Option<Uuid>,
 }
 
 #[derive(Clap)]
 struct DeleteOptions {
     #[clap(parse(try_from_str))]
     pub id: utils::PartitionId,
+}
+
+#[derive(Clap)]
+struct ModifyOptions {
+    #[clap(parse(try_from_str))]
+    pub partition: utils::PartitionId,
+    #[clap(short, long)]
+    pub name: Option<String>,
+    #[clap(short = 'u', long = "guid", long_about = "Unique GUID")]
+    pub unique_guid: Option<Uuid>,
+    #[clap(short = 't', long = "type", parse(try_from_str = parse_partition_type), long_about = "Type GUID or one of: msbasic, msreserved, esp")]
+    pub type_guid: Option<Uuid>,
 }
 
 fn main() -> Result<()> {
@@ -97,6 +131,7 @@ fn main() -> Result<()> {
         SubCommand::Print => print_partition_table(disk.as_ref(), &gpt)?,
         SubCommand::Add(options) => add_partition(disk.as_mut(), &mut gpt, &options)?,
         SubCommand::Delete(options) => delete_partition(disk.as_mut(), &mut gpt, &options)?,
+        SubCommand::Modify(options) => modify_partition(disk.as_mut(), &mut gpt, &options)?,
     };
 
     Ok(())
@@ -194,11 +229,18 @@ fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Re
         .map(|(i, _)| i)
         .expect("No free partition slot found.");
 
-    gpt.partitions[free_entry_index] = Some(GptPartition::new(
-        GptPartitionType::MicrosoftBasicData,
-        &options.name,
+    gpt.partitions[free_entry_index] = Some(GptPartition::new_ex(
+        options
+            .type_guid
+            .unwrap_or(GptPartitionType::MicrosoftBasicData.to_guid()),
+        if let Some(n) = options.name.as_ref() {
+            n.as_ref()
+        } else {
+            ""
+        },
         new_part_region.start(),
         new_part_region.end(),
+        options.unique_guid.unwrap_or_else(|| Uuid::new_v4()),
     ));
 
     gpt.update(disk)?;
@@ -212,10 +254,37 @@ fn delete_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &DeleteOptions)
             gpt.get_partition(i).expect("No such partition.");
             i
         }
-        utils::PartitionId::Guid(g) => gpt.find_partition_by_guid(g).unwrap().0,
+        utils::PartitionId::Guid(g) => gpt.find_partition_by_guid(g).expect("No such partition.").0,
     };
 
     gpt.partitions[partition_index as usize] = None;
+    gpt.update(disk)?;
+
+    Ok(())
+}
+
+fn modify_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &ModifyOptions) -> Result<()> {
+    let partition = match options.partition {
+        utils::PartitionId::Index(i) => gpt.get_partition_mut(i).expect("No such partition."),
+        utils::PartitionId::Guid(g) => {
+            gpt.find_partition_by_guid_mut(g)
+                .expect("No such partition.")
+                .1
+        }
+    };
+
+    if let Some(name) = options.name.as_ref() {
+        partition.partition_name = name.clone();
+    }
+
+    if let Some(unique_guid) = options.unique_guid.as_ref() {
+        partition.unique_guid = unique_guid.clone();
+    }
+
+    if let Some(type_guid) = options.type_guid.as_ref() {
+        partition.type_guid = type_guid.clone();
+    }
+
     gpt.update(disk)?;
 
     Ok(())

@@ -531,9 +531,34 @@ impl Gpt {
         Err(Error::NotFound)
     }
 
+    pub fn find_partition_by_guid_mut(&mut self, guid: Uuid) -> Result<(u32, &mut GptPartition)> {
+        for (i, x) in self
+            .partitions
+            .iter_mut()
+            .enumerate()
+            .map(|(i, x)| (i, x.as_mut()))
+        {
+            if let Some(x) = x {
+                if x.unique_guid == guid {
+                    return Ok((i as u32, x));
+                }
+            }
+        }
+
+        Err(Error::NotFound)
+    }
+
     pub fn get_partition(&self, index: u32) -> Option<&GptPartition> {
         if let Some(p) = self.partitions.get(index as usize) {
             p.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_partition_mut(&mut self, index: u32) -> Option<&mut GptPartition> {
+        if let Some(p) = self.partitions.get_mut(index as usize) {
+            p.as_mut()
         } else {
             None
         }
@@ -582,13 +607,13 @@ pub struct GptPartition {
 
 impl GptPartition {
     pub fn new(_type: GptPartitionType, name: &str, start: u64, end: u64) -> Self {
-        Self::new_with_type_guid(_type.to_guid(), name, start, end)
+        Self::new_ex(_type.to_guid(), name, start, end, Uuid::new_v4())
     }
 
-    pub fn new_with_type_guid(type_guid: Uuid, name: &str, start: u64, end: u64) -> Self {
+    pub fn new_ex(type_guid: Uuid, name: &str, start: u64, end: u64, unique_guid: Uuid) -> Self {
         Self {
             type_guid,
-            unique_guid: Uuid::new_v4(),
+            unique_guid,
             start_lba: start,
             end_lba: end,
             attributes: 0,
