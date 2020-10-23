@@ -196,7 +196,7 @@ pub enum GptPartitionType {
 }
 
 impl GptPartitionType {
-    pub fn to_guid(&self) -> Uuid {
+    pub const fn to_guid(&self) -> Uuid {
         Uuid::from_u128(*self as u128)
     }
 

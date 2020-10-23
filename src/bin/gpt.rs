@@ -232,7 +232,7 @@ fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Re
     gpt.partitions[free_entry_index] = Some(GptPartition::new_ex(
         options
             .type_guid
-            .unwrap_or(GptPartitionType::MicrosoftBasicData.to_guid()),
+            .unwrap_or_else(|| GptPartitionType::MicrosoftBasicData.to_guid()),
         if let Some(n) = options.name.as_ref() {
             n.as_ref()
         } else {
@@ -240,7 +240,7 @@ fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Re
         },
         new_part_region.start(),
         new_part_region.end(),
-        options.unique_guid.unwrap_or_else(|| Uuid::new_v4()),
+        options.unique_guid.unwrap_or_else(Uuid::new_v4),
     ));
 
     gpt.update(disk)?;
@@ -278,11 +278,11 @@ fn modify_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &ModifyOptions)
     }
 
     if let Some(unique_guid) = options.unique_guid.as_ref() {
-        partition.unique_guid = unique_guid.clone();
+        partition.unique_guid = *unique_guid;
     }
 
     if let Some(type_guid) = options.type_guid.as_ref() {
-        partition.type_guid = type_guid.clone();
+        partition.type_guid = *type_guid;
     }
 
     gpt.update(disk)?;
