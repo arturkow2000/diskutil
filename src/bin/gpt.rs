@@ -1,14 +1,17 @@
 mod utils;
 
 use clap::Clap;
-use diskutil::disk::{open_disk, Disk, DiskFormat, FileBackend};
+use diskutil::disk::{open_disk, Disk, DiskFormat, DiskSlice, FileBackend};
 use diskutil::part::{
     gpt::{uuid128_partition_type_guid_to_name, ErrorAction, Gpt, GptPartition, GptPartitionType},
     mbr::Mbr,
 };
 use diskutil::region::Region;
 use diskutil::Result;
+use std::cmp::min;
+use std::convert::TryInto;
 use std::fs::OpenOptions;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::transmute;
 use std::path::PathBuf;
 use std::result;
@@ -81,6 +84,12 @@ struct AddOptions {
     pub unique_guid: Option<Uuid>,
     #[clap(short = 't', long = "type", parse(try_from_str = parse_partition_type), long_about = "Type GUID or one of: msbasic, msreserved, esp")]
     pub type_guid: Option<Uuid>,
+    #[clap(
+        short = 'i',
+        long = "init",
+        long_about = "Initialize partition with data from specified file"
+    )]
+    pub init: Option<PathBuf>,
 }
 
 #[derive(Clap)]
@@ -242,6 +251,29 @@ fn add_partition(disk: &mut dyn Disk, gpt: &mut Gpt, options: &AddOptions) -> Re
         new_part_region.end(),
         options.unique_guid.unwrap_or_else(Uuid::new_v4),
     ));
+
+    if let Some(path) = options.init.as_ref() {
+        let mut file = OpenOptions::new().read(true).write(false).open(path)?;
+        let file_size = file.seek(SeekFrom::End(0))?;
+        file.seek(SeekFrom::Start(0))?;
+
+        let mut slice = DiskSlice::new(disk, options.start, options.size / sector_size);
+
+        let mut left = min(file_size, options.size);
+        if left > 0 {
+            let mut buffer: Vec<u8> = Vec::new();
+            // FIXME: Hardcoded 16 MiB blocks, should be configurable on command line
+            buffer.reserve(16 * 1024 * 1024);
+            unsafe { buffer.set_len(16 * 1024 * 1024) };
+
+            while left > 0 {
+                let n = min(buffer.len(), left.try_into().unwrap_or(usize::MAX));
+                file.read_exact(&mut buffer[..n])?;
+                slice.write_all(&buffer[..n])?;
+                left -= n as u64;
+            }
+        }
+    }
 
     gpt.update(disk)?;
 
