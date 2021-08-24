@@ -1,46 +1,29 @@
-use std::string::ToString;
 use std::{io, result};
+
+use thiserror::Error;
 
 pub type Result<T> = result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-    IoError(io::Error),
+    #[error(transparent)]
+    IoError(#[from] io::Error),
+    #[error("invalid VHD footer {0:#?}")]
     InvalidVhdFooter(Option<String>),
+    #[error("invalid VHD dynamic header {0:#?}")]
     InvalidVhdDynamicHeader(Option<String>),
+    #[error("MBR is missing")]
     MbrMissing,
+    #[error("GPT is missing")]
     GptMissing,
+    #[error("{0}")]
     InvalidGpt(String),
+    #[error("unknown disk type")]
     UnknownDiskType,
+    #[error("invalid BPB")]
     InvalidBpb,
+    #[error("not supported")]
     NotSupported,
+    #[error("not found")]
     NotFound,
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Self::IoError(e)
-    }
-}
-
-impl ToString for Error {
-    fn to_string(&self) -> String {
-        match self {
-            Self::IoError(e) => e.to_string(),
-            Self::InvalidVhdFooter(e) => e
-                .as_ref()
-                .map_or_else(|| "Invalid VHD Footer".to_owned(), |x| x.to_string()),
-            Self::InvalidVhdDynamicHeader(e) => e.as_ref().map_or_else(
-                || "Invalid VHD Dynamic Header".to_owned(),
-                |x| x.to_string(),
-            ),
-            Self::MbrMissing => "MBR is missing".to_owned(),
-            Self::GptMissing => "GPT is missing".to_owned(),
-            Self::InvalidGpt(e) => e.clone(),
-            Self::UnknownDiskType => "Unknown disk type".to_owned(),
-            Self::InvalidBpb => "BPB is invalid".to_owned(),
-            Self::NotSupported => "Not supported".to_owned(),
-            Self::NotFound => "Not found".to_owned(),
-        }
-    }
 }

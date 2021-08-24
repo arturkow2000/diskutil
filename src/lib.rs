@@ -1,3 +1,4 @@
+#![allow(incomplete_features)]
 #![feature(repr128)]
 
 extern crate byteorder;

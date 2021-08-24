@@ -73,7 +73,7 @@ pub fn parse_size(x: &str) -> result::Result<u64, String> {
         GiB,
         TiB,
         EiB,
-    };
+    }
     const MULTIPLIERS: [u64; 6] = [
         /* B */ 1,
         /* KiB */ 1024,
