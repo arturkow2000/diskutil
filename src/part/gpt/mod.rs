@@ -13,6 +13,8 @@ use std::io::{self, BufReader, Cursor, Read, Seek, SeekFrom, Write};
 use std::mem;
 use uuid::Uuid;
 
+mod util;
+
 const GPT_HEADER_SIZE: usize = 0x5C;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
