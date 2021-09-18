@@ -7,6 +7,7 @@ use crate::{Error, Result};
 pub use slice::DiskSlice;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::fmt;
 use std::fs::File;
 use std::io;
 use std::str::FromStr;
@@ -30,6 +31,15 @@ impl FromStr for DiskFormat {
             "raw" => Ok(Self::RAW),
             "vhd" => Ok(Self::VHD),
             _ => Err(Error::UnknownDiskType),
+        }
+    }
+}
+
+impl fmt::Display for DiskFormat {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::RAW => write!(f, "raw"),
+            Self::VHD => write!(f, "vhd"),
         }
     }
 }
