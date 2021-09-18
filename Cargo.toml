@@ -29,6 +29,7 @@ name = "fat"
 path = "src/bin/fat.rs"
 
 [dependencies]
+anyhow = "1"
 thiserror = "1"
 bitflags = "1"
 byteorder = "1"

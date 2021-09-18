@@ -4,6 +4,10 @@ use std::str::FromStr;
 use std::{io, result};
 use uuid::Uuid;
 
+pub use open_disk::*;
+
+mod open_disk;
+
 pub fn setup_logging(verbosity_level: u32) {
     use fern::colors::{Color, ColoredLevelConfig};
 
