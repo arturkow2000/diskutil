@@ -242,12 +242,15 @@ impl Disk for VhdDisk {
     fn disk_size(&self) -> u64 {
         self.max_disk_size as u64
     }
+
     fn sector_size(&self) -> u32 {
         512
     }
+
     fn media_type(&self) -> MediaType {
         MediaType::HDD
     }
+
     fn disk_format(&self) -> DiskFormat {
         DiskFormat::VHD
     }

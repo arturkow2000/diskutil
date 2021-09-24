@@ -96,12 +96,15 @@ impl<'a> Disk for DiskSlice<'a> {
     fn disk_size(&self) -> u64 {
         (self.end - self.start) + 1
     }
+
     fn sector_size(&self) -> u32 {
         self.parent.sector_size()
     }
+
     fn media_type(&self) -> MediaType {
         self.parent.media_type()
     }
+
     fn disk_format(&self) -> DiskFormat {
         self.parent.disk_format()
     }

@@ -3,14 +3,16 @@ pub mod raw;
 mod slice;
 pub mod vhd;
 
-use crate::{Error, Result};
-pub use slice::DiskSlice;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt;
 use std::fs::File;
 use std::io;
 use std::str::FromStr;
+
+use crate::{Error, Result};
+pub use slice::DiskSlice;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
@@ -54,12 +56,48 @@ pub enum MediaType {
     CDROM,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum WipePolarity {
+    DontCare,
+    Low,
+    High,
+}
+
 pub trait Disk: io::Read + io::Seek + io::Write {
     /// Returns disk size in bytes
     fn disk_size(&self) -> u64;
+
+    /// Returns block size device can read or write
     fn sector_size(&self) -> u32;
     fn media_type(&self) -> MediaType;
     fn disk_format(&self) -> DiskFormat;
+
+    /// Fills specified disk region with either zero's or one's.
+    fn wipe(&mut self, size: usize, polarity: WipePolarity) -> Result<()> {
+        // TODO: flash memories support erase operation,
+        // maybe we could take advantage of that to increase write speed
+
+        // Allocate at most 16 MiB
+        const BLOCK_SIZE: usize = 16777216;
+        let mut left = size;
+
+        let mut buf: Vec<u8> = Vec::with_capacity(min(BLOCK_SIZE, left.try_into().unwrap()));
+        buf.resize(
+            min(BLOCK_SIZE, left.try_into().unwrap()),
+            match polarity {
+                WipePolarity::DontCare | WipePolarity::Low => 0,
+                WipePolarity::High => 0xff,
+            },
+        );
+
+        while left > 0 {
+            let n = min(left, 16777216);
+            self.write_all(&buf[..n])?;
+            left -= n;
+        }
+
+        Ok(())
+    }
 }
 
 pub trait Backend: io::Read + io::Seek + io::Write {
