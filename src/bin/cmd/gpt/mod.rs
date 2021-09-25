@@ -1,10 +1,11 @@
-use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::utils::{open_disk, parse_size, PartitionId};
+use crate::{
+    utils::{open_disk, parse_size, PartitionId},
+    CommonDiskOptions,
+};
 use anyhow::Context;
 use clap::{ArgEnum, Clap};
-use diskutil::disk::DiskFormat;
 use diskutil::part::gpt::{ErrorAction, Gpt, GptPartitionType};
 use uuid::Uuid;
 
@@ -113,9 +114,8 @@ pub enum SubCommand {
 
 #[derive(Clap)]
 pub struct Command {
-    #[clap(short, long)]
-    format: DiskFormat,
-    file: PathBuf,
+    #[clap(flatten)]
+    disk: CommonDiskOptions,
 
     #[clap(subcommand)]
     cmd: SubCommand,
@@ -123,8 +123,8 @@ pub struct Command {
 
 pub fn run(command: Command) -> anyhow::Result<()> {
     let mut disk = open_disk(
-        command.file.as_path(),
-        command.format,
+        command.disk.file.as_path(),
+        command.disk.format,
         access::get_access_mode(&command),
     )?;
 

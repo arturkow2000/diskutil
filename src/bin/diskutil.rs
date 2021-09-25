@@ -1,4 +1,7 @@
+use std::path::PathBuf;
+
 use clap::{Clap, Subcommand};
+use diskutil::disk::DiskFormat;
 
 mod cmd;
 mod utils;
@@ -10,6 +13,7 @@ extern crate anyhow;
 enum Command {
     Create(cmd::create::Command),
     Gpt(cmd::gpt::Command),
+    Hexdump(cmd::hexdump::Command),
 }
 
 #[derive(Clap)]
@@ -18,11 +22,19 @@ struct Options {
     pub command: Command,
 }
 
+#[derive(Clap)]
+struct CommonDiskOptions {
+    #[clap(short, long)]
+    format: DiskFormat,
+    file: PathBuf,
+}
+
 fn main() -> anyhow::Result<()> {
     let o = Options::parse();
 
     match o.command {
         Command::Create(c) => cmd::create::run(c),
         Command::Gpt(c) => cmd::gpt::run(c),
+        Command::Hexdump(c) => cmd::hexdump::run(c),
     }
 }
