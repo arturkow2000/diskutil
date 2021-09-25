@@ -83,13 +83,12 @@ pub fn hexdump_from_reader<T: Read + ?Sized>(
 ) -> io::Result<()> {
     const BLOCK_SIZE: usize = 16777216;
 
-    let mut buf: Vec<u8> = Vec::with_capacity(min(length, BLOCK_SIZE));
     // FIXME: we are currently wasting time for initializing buffer which
     // will overridden right away.
     // Currently Rust provides no safe way to read into uninitialized buffer and
     // we want to avoid using unsafe code as much as possible
     // see https://rust-lang.github.io/rfcs/2930-read-buf.html
-    buf.resize(min(length, BLOCK_SIZE), 0);
+    let mut buf = vec![0; min(length, BLOCK_SIZE)];
 
     let mut left = length;
     let mut address = 0;
@@ -116,23 +115,21 @@ pub fn hexdump_from_reader<T: Read + ?Sized>(
                 if opt.verbose {
                     hexdump_row(address, s, opt);
                     address += opt.words_per_row;
-                } else {
-                    if &last_row_copy[..n] == &s[..] {
-                        if !a {
-                            println!("*");
-                            a = true;
-                        }
-                    } else {
-                        hexdump_row(address, s, opt);
-                        address += opt.words_per_row;
-
-                        if n < opt.words_per_row {
-                            last_row_copy.resize(n, 0);
-                        }
-
-                        last_row_copy.copy_from_slice(s);
-                        a = false;
+                } else if &last_row_copy[..n] == s {
+                    if !a {
+                        println!("*");
+                        a = true;
                     }
+                } else {
+                    hexdump_row(address, s, opt);
+                    address += opt.words_per_row;
+
+                    if n < opt.words_per_row {
+                        last_row_copy.resize(n, 0);
+                    }
+
+                    last_row_copy.copy_from_slice(s);
+                    a = false;
                 }
 
                 left -= n;

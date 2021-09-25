@@ -46,7 +46,7 @@ pub fn add(disk: &mut dyn Disk, gpt: &mut Gpt, opt: &AddOptions) -> anyhow::Resu
         region
     } else {
         let free = find_free_region(gpt, opt.size / sector_size)
-            .ok_or(anyhow::Error::msg("not enough free space"))?;
+            .ok_or_else(|| anyhow::Error::msg("not enough free space"))?;
 
         Region::new_with_size(free.start(), opt.size / sector_size)
     };
@@ -54,7 +54,7 @@ pub fn add(disk: &mut dyn Disk, gpt: &mut Gpt, opt: &AddOptions) -> anyhow::Resu
     if let Some(free_slot) = gpt.partitions.iter().position(|x| x.is_none()) {
         gpt.partitions[free_slot] = Some(GptPartition::new_ex(
             opt.type_guid
-                .unwrap_or(GptPartitionType::MicrosoftBasicData.to_guid()),
+                .unwrap_or_else(|| GptPartitionType::MicrosoftBasicData.to_guid()),
             opt.name.as_deref().unwrap_or(""),
             new_part_region.start(),
             new_part_region.end(),

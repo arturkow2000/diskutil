@@ -13,7 +13,7 @@ use diskutil::disk::{Disk, DiskSlice};
 use diskutil::part::load_partition_table;
 use diskutil::region::Region;
 
-mod hexdump;
+mod hexdump_util;
 
 #[derive(Clap)]
 #[clap(group = ArgGroup::new("grp_offset").required(true))]
@@ -70,7 +70,7 @@ impl Command {
                 self.length_in_sectors
                     .map(|x| x * disk.sector_size() as u64)
             })
-            .unwrap_or(disk.disk_size())
+            .unwrap_or_else(|| disk.disk_size())
     }
 }
 
@@ -111,10 +111,10 @@ pub fn run(command: Command) -> anyhow::Result<()> {
     part.seek(SeekFrom::Start(offset)).context("seek failed")?;
 
     // TODO: support other modes (currently we support only canonical mode, same as in Unix hexdump)
-    hexdump::hexdump_from_reader(
+    hexdump_util::hexdump_from_reader(
         &mut part,
         length.try_into().unwrap(),
-        &hexdump::Options::default(),
+        &hexdump_util::Options::default(),
     )
     .context("hexdump failed")?;
 

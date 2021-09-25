@@ -21,10 +21,6 @@ name = "bin2vhd"
 path = "src/bin/bin2vhd.rs"
 
 [[bin]]
-name = "gpt"
-path = "src/bin/gpt.rs"
-
-[[bin]]
 name = "fat"
 path = "src/bin/fat.rs"
 

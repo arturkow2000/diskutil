@@ -38,7 +38,7 @@ fn find_free_regions(
         }
     }
 
-    usable_regions.iter().copied().filter_map(|x| x).collect()
+    usable_regions.iter().copied().flatten().collect()
 }
 
 #[cfg(test)]

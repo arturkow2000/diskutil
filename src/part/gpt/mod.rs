@@ -360,9 +360,8 @@ impl Gpt {
         }
 
         for i in 0..self.partition_table_entries_num as usize {
+            let start_position = cursor.position();
             if let Some(partition) = self.partitions.get(i).and_then(|x| x.as_ref()) {
-                let start_position = cursor.position();
-
                 write_guid_hash(&mut cursor, &mut crc32, partition.type_guid).unwrap();
                 write_guid_hash(&mut cursor, &mut crc32, partition.unique_guid).unwrap();
                 write_hash!(u64, cursor, partition.start_lba).unwrap();
@@ -399,9 +398,8 @@ impl Gpt {
                     cursor.seek(SeekFrom::Current(o)).unwrap();
                 }
             } else {
-                let position = cursor.position();
-                let s = &mut cursor.get_mut()[position as usize
-                    ..position as usize + self.partition_table_entry_size as usize];
+                let s = &mut cursor.get_mut()[start_position as usize
+                    ..start_position as usize + self.partition_table_entry_size as usize];
                 zero_u8_slice(s);
                 Hasher::write(&mut crc32, s);
                 cursor
@@ -569,12 +567,8 @@ impl Gpt {
 
 impl PartitionTable for Gpt {
     fn get_partition_start_end(&self, index: u32) -> Option<(u64, u64)> {
-        if let Some(x) = self.partitions.get(index as usize) {
-            if let Some(x) = x {
-                Some((x.start_lba, x.end_lba))
-            } else {
-                None
-            }
+        if let Some(Some(x)) = self.partitions.get(index as usize) {
+            Some((x.start_lba, x.end_lba))
         } else {
             None
         }

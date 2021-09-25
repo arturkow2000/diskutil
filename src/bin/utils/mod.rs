@@ -109,9 +109,9 @@ pub fn parse_size(x: &str) -> result::Result<u64, String> {
     };
 
     let n = if has_unit {
-        u64::from_str_radix(&x[..len - 1], 10).map_err(|e| e.to_string())?
+        (&x[..len - 1]).parse::<u64>().map_err(|e| e.to_string())?
     } else {
-        u64::from_str_radix(&x, 10).map_err(|e| e.to_string())?
+        x.parse::<u64>().map_err(|e| e.to_string())?
     };
     if let Some(n) = n.checked_mul(MULTIPLIERS[unit as usize]) {
         Ok(n)
@@ -136,9 +136,7 @@ impl FromStr for PartitionId {
                 Uuid::from_str(&s[1..s.len() - 1]).map_err(|e| e.to_string())?,
             ))
         } else {
-            Ok(Self::Index(
-                u32::from_str_radix(s, 10).map_err(|e| e.to_string())?,
-            ))
+            Ok(Self::Index(s.parse::<u32>().map_err(|e| e.to_string())?))
         }
     }
 }

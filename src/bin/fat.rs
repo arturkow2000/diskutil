@@ -13,11 +13,11 @@ use std::cmp::min;
 use std::convert::TryInto;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::result;
 
 fn parse_sector_size(x: &str) -> result::Result<usize, String> {
-    let x = usize::from_str_radix(x, 10).map_err(|e| e.to_string())?;
+    let x = x.parse::<usize>().map_err(|e| e.to_string())?;
     if !x.is_power_of_two() {
         return Err("sector size not power of 2".to_owned());
     }
@@ -128,8 +128,7 @@ fn main() -> Result<()> {
         Default::default(),
     )?;
 
-    let mut slice: DiskSlice;
-    let fs = if let Some(partition) = options.partition {
+    let mut slice = if let Some(partition) = options.partition {
         let pt = load_partition_table(disk.as_mut()).unwrap();
         let (s, e) = match partition {
             utils::PartitionId::Index(i) => pt.get_partition_start_end(i).unwrap(),
@@ -138,20 +137,16 @@ fn main() -> Result<()> {
                 (x.1.start(), x.1.end())
             }
         };
-        slice = DiskSlice::new(disk.as_mut(), s, e);
-        if let SubCommand::Format(p) = options.subcommand {
-            return fat_format(&mut slice, &p);
-        }
-
-        fatfs::FileSystem::new(&mut slice, fatfs::FsOptions::new()).unwrap()
+        DiskSlice::new(disk.as_mut(), s, e)
     } else {
         let size = disk.disk_size() / disk.sector_size() as u64;
-        slice = DiskSlice::new(disk.as_mut(), 0, size);
-        if let SubCommand::Format(p) = options.subcommand {
-            return fat_format(&mut slice, &p);
-        }
-        fatfs::FileSystem::new(&mut slice, fatfs::FsOptions::new()).unwrap()
+        DiskSlice::new(disk.as_mut(), 0, size)
     };
+
+    if let SubCommand::Format(p) = options.subcommand {
+        return fat_format(&mut slice, &p);
+    }
+    let fs = fatfs::FileSystem::new(&mut slice, fatfs::FsOptions::new()).unwrap();
     let root = fs.root_dir();
 
     match options.subcommand {
@@ -270,7 +265,7 @@ where
     }
 }
 
-fn convert_path(p: &PathBuf) -> String {
+fn convert_path(p: &Path) -> String {
     let mut s = String::new();
     for c in p.components() {
         match c {
@@ -314,7 +309,7 @@ where
 
         if !e.is_dir() {
             dir.remove(e.file_name().as_ref()).unwrap();
-            if is_dir_empty(&dir).unwrap() {
+            if is_dir_empty(dir).unwrap() {
                 break;
             }
         } else {

@@ -8,7 +8,7 @@ pub fn modify(disk: &mut dyn Disk, gpt: &mut Gpt, opt: &ModifyOptions) -> anyhow
     let part = match opt.id {
         PartitionId::Index(i) => gpt
             .get_partition_mut(i)
-            .ok_or(anyhow::Error::msg("no such partition"))?,
+            .ok_or_else(|| anyhow::Error::msg("no such partition"))?,
         PartitionId::Guid(g) => {
             if let Ok(part) = gpt.find_partition_by_guid_mut(g).map(|(_, x)| x) {
                 part

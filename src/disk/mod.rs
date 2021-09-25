@@ -81,9 +81,9 @@ pub trait Disk: io::Read + io::Seek + io::Write {
         const BLOCK_SIZE: usize = 16777216;
         let mut left = size;
 
-        let mut buf: Vec<u8> = Vec::with_capacity(min(BLOCK_SIZE, left.try_into().unwrap()));
+        let mut buf: Vec<u8> = Vec::with_capacity(min(BLOCK_SIZE, left));
         buf.resize(
-            min(BLOCK_SIZE, left.try_into().unwrap()),
+            min(BLOCK_SIZE, left),
             match polarity {
                 WipePolarity::DontCare | WipePolarity::Low => 0,
                 WipePolarity::High => 0xff,
@@ -161,6 +161,8 @@ pub enum Argument {
     Unsigned(u64),
     String(String),
 }
+
+#[derive(Default)]
 pub struct ArgumentMap(HashMap<String, Argument>);
 macro_rules! g1 {
     ($name:tt, $type:ty) => {
@@ -195,14 +197,6 @@ impl ArgumentMap {
     g1!(get_u16, u16);
     g1!(get_u32, u32);
     g1!(get_u64, u64);
-}
-
-impl Default for ArgumentMap {
-    fn default() -> Self {
-        Self {
-            0: Default::default(),
-        }
-    }
 }
 
 pub fn open_disk(
