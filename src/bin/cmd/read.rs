@@ -1,7 +1,8 @@
-use std::{
-    convert::TryInto,
-    io::{Seek, SeekFrom},
-};
+use std::cmp::min;
+use std::convert::TryInto;
+use std::fs::OpenOptions;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
 
 use crate::{
     utils::{get_partition_region, open_disk, AccessMode, PartitionId},
@@ -12,12 +13,10 @@ use clap::{ArgGroup, Clap};
 use diskutil::disk::{Disk, DiskSlice};
 use diskutil::part::load_partition_table;
 
-mod hexdump_util;
-
 #[derive(Clap)]
 #[clap(group = ArgGroup::new("grp_offset").required(true))]
 #[clap(group = ArgGroup::new("grp_length").required(false))]
-#[clap(about = "HEX + ASCII dump, similar to hexdump tool from Unix.")]
+#[clap(about = "Read raw data from disk")]
 pub struct Command {
     #[clap(flatten)]
     disk: CommonDiskOptions,
@@ -25,14 +24,14 @@ pub struct Command {
     #[clap(
         short,
         group = "grp_offset",
-        about = "Offset in bytes from where to start hexdump, relative to selected partition"
+        about = "Offset in bytes where to read from, relative to selected partition"
     )]
     offset: Option<u64>,
 
     #[clap(
         short,
         group = "grp_offset",
-        about = "Offset in sectors from where to start hexdump, relative to selected partition"
+        about = "Offset in sectors where to read from, relative to selected partition"
     )]
     sector: Option<u64>,
 
@@ -40,7 +39,7 @@ pub struct Command {
         short = 'l',
         group = "grp_length",
         value_name = "NUMBER OF BYTES",
-        about = "Number of bytes to dump"
+        about = "Number of bytes to read"
     )]
     length_in_bytes: Option<u64>,
 
@@ -48,12 +47,15 @@ pub struct Command {
         short = 'n',
         group = "grp_length",
         value_name = "NUMBER OF SECTORS",
-        about = "Number of sectors to dump"
+        about = "Number of sectors to read"
     )]
     length_in_sectors: Option<u64>,
 
-    #[clap(short = 'p', about = "Partition to dump from")]
+    #[clap(short = 'p', about = "Partition to read from")]
     partition: Option<PartitionId>,
+
+    #[clap(long = "out", about = "Output file")]
+    output: Option<PathBuf>,
 }
 
 impl Command {
@@ -70,6 +72,21 @@ impl Command {
                     .map(|x| x * disk.sector_size() as u64)
             })
             .unwrap_or_else(|| disk.disk_size())
+    }
+
+    fn get_output_stream(&self) -> anyhow::Result<Box<dyn Write>> {
+        if let Some(path) = self.output.as_deref() {
+            Ok(Box::new(
+                OpenOptions::new()
+                    .read(false)
+                    .write(true)
+                    .create(true)
+                    .open(path)
+                    .context("failed to open output file")?,
+            ))
+        } else {
+            Ok(Box::new(std::io::stdout()))
+        }
     }
 }
 
@@ -92,15 +109,24 @@ pub fn run(command: Command) -> anyhow::Result<()> {
     let offset = command.get_offset(&part);
     let length = command.get_length(&part);
 
+    let mut out = command.get_output_stream()?;
+
+    // FIXME: we are currently wasting time for initializing buffer which
+    // will overridden right away.
+    // Currently Rust provides no safe way to read into uninitialized buffer and
+    // we want to avoid using unsafe code as much as possible
+    // see https://rust-lang.github.io/rfcs/2930-read-buf.html
+    let mut buf = vec![0; min(length.try_into().unwrap_or(usize::MAX), 16777216)];
+
     part.seek(SeekFrom::Start(offset)).context("seek failed")?;
 
-    // TODO: support other modes (currently we support only canonical mode, same as in Unix hexdump)
-    hexdump_util::hexdump_from_reader(
-        &mut part,
-        length.try_into().unwrap(),
-        &hexdump_util::Options::default(),
-    )
-    .context("hexdump failed")?;
+    let mut left = length;
+    while left > 0 {
+        let n = min(left.try_into().unwrap_or(usize::MAX), buf.len());
+        part.read_exact(&mut buf[..n]).context("read failed")?;
+        out.write_all(&buf[..n]).context("write failed")?;
+        left -= n as u64;
+    }
 
     Ok(())
 }

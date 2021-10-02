@@ -113,6 +113,7 @@ pub enum SubCommand {
 }
 
 #[derive(Clap)]
+#[clap(about = "Manipulate GUID partition table")]
 pub struct Command {
     #[clap(flatten)]
     disk: CommonDiskOptions,

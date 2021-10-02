@@ -5,8 +5,10 @@ use std::{io, result};
 use uuid::Uuid;
 
 pub use open_disk::*;
+pub use part::*;
 
 mod open_disk;
+mod part;
 
 pub fn setup_logging(verbosity_level: u32) {
     use fern::colors::{Color, ColoredLevelConfig};

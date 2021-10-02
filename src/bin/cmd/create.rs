@@ -10,6 +10,7 @@ use diskutil::disk::DiskFormat;
 use diskutil::disk::FileBackend;
 
 #[derive(Clap)]
+#[clap(about = "Create disk images")]
 pub struct Command {
     #[clap(short, long)]
     pub format: DiskFormat,

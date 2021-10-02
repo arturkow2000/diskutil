@@ -14,6 +14,8 @@ enum Command {
     Create(cmd::create::Command),
     Gpt(cmd::gpt::Command),
     Hexdump(cmd::hexdump::Command),
+    Read(cmd::read::Command),
+    Write(cmd::write::Command),
 }
 
 #[derive(Clap)]
@@ -36,5 +38,7 @@ fn main() -> anyhow::Result<()> {
         Command::Create(c) => cmd::create::run(c),
         Command::Gpt(c) => cmd::gpt::run(c),
         Command::Hexdump(c) => cmd::hexdump::run(c),
+        Command::Read(c) => cmd::read::run(c),
+        Command::Write(c) => cmd::write::run(c),
     }
 }
