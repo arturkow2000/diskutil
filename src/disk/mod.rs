@@ -1,8 +1,3 @@
-pub mod ram;
-pub mod raw;
-mod slice;
-pub mod vhd;
-
 use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -13,6 +8,12 @@ use std::str::FromStr;
 
 use crate::{Error, Result};
 pub use slice::DiskSlice;
+
+pub mod buffer;
+pub mod ram;
+pub mod raw;
+mod slice;
+pub mod vhd;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
