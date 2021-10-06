@@ -15,9 +15,16 @@ pub mod raw;
 mod slice;
 pub mod vhd;
 
+#[cfg(all(feature = "device", windows))]
+pub use windows_device::DeviceBackend;
+
+#[cfg(all(feature = "device", windows))]
+mod windows_device;
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum DiskFormat {
+    Device,
     RAW,
     VHD,
     // TODO:
@@ -31,6 +38,7 @@ impl FromStr for DiskFormat {
 
     fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
+            "device" => Ok(Self::Device),
             "raw" => Ok(Self::RAW),
             "vhd" => Ok(Self::VHD),
             _ => Err(Error::UnknownDiskType),
@@ -41,6 +49,7 @@ impl FromStr for DiskFormat {
 impl fmt::Display for DiskFormat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::Device => write!(f, "device"),
             Self::RAW => write!(f, "raw"),
             Self::VHD => write!(f, "vhd"),
         }
@@ -206,7 +215,9 @@ pub fn open_disk(
     args: ArgumentMap,
 ) -> Result<Box<dyn Disk>> {
     Ok(match format {
-        DiskFormat::RAW => Box::new(raw::RawDisk::open_with_argmap(backend, &args)),
+        DiskFormat::RAW | DiskFormat::Device => {
+            Box::new(raw::RawDisk::open_with_argmap(backend, &args))
+        }
         DiskFormat::VHD => Box::new(vhd::VhdDisk::open_with_argmap(backend, &args)?),
     })
 }

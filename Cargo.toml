@@ -24,6 +24,10 @@ path = "src/bin/bin2vhd.rs"
 name = "fat"
 path = "src/bin/fat.rs"
 
+[features]
+default = ["device"]
+device = ["winapi"]
+
 [dependencies]
 anyhow = "1"
 thiserror = "1"
@@ -37,6 +41,8 @@ crc = "1"
 better-panic = "0.2"
 fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "1415756c41a3e1b2e6596b283d4c55c82a9378b4", features = ["std"] }
 uuid_macros = { path = "uuid_macros" }
+
+winapi = { version = "0.3", optional = true, features = ["ioapiset", "winioctl"] }
 
 [dependencies.uuid]
 version = "0.8"
