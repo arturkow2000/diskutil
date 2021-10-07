@@ -6,7 +6,7 @@ mod utils;
 
 use chrono::{DateTime, Local};
 use clap::Clap;
-use diskutil::disk::{open_disk, DiskFormat, DiskSlice, FileBackend};
+use diskutil::disk::{open_disk, Backend, DeviceBackend, DiskFormat, DiskSlice, FileBackend};
 use diskutil::part::load_partition_table;
 use diskutil::Result;
 use std::cmp::min;
@@ -45,7 +45,7 @@ struct Options {
     #[clap(long, name = "sector_size", parse(try_from_str = parse_sector_size), default_value = "512", long_about = "Set sector size for RAW disks, for other disk formats this is ignored.")]
     pub sector_size: usize,
 
-    #[clap(long, parse(try_from_str))]
+    #[clap(short = 'f', long, parse(try_from_str))]
     pub disk_format: DiskFormat,
 
     #[clap(short = 'p', long = "partition", parse(try_from_str))]
@@ -111,6 +111,16 @@ macro_rules! u8_vector_uninitialized {
     }};
 }
 
+fn get_backend(path: &Path, format: DiskFormat) -> Result<Box<dyn Backend>> {
+    if format == DiskFormat::Device {
+        Ok(DeviceBackend::new(path, true)?)
+    } else {
+        Ok(FileBackend::new(
+            OpenOptions::new().read(true).write(true).open(path)?,
+        )?)
+    }
+}
+
 fn main() -> Result<()> {
     better_panic::install();
     let options = Options::parse();
@@ -119,12 +129,7 @@ fn main() -> Result<()> {
     // TODO: pass sector_size
     let mut disk = open_disk(
         options.disk_format,
-        FileBackend::new(
-            OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(options.file)?,
-        )?,
+        get_backend(options.file.as_path(), options.disk_format)?,
         Default::default(),
     )?;
 
