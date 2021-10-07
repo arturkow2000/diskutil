@@ -215,9 +215,12 @@ pub fn open_disk(
     args: ArgumentMap,
 ) -> Result<Box<dyn Disk>> {
     Ok(match format {
-        DiskFormat::RAW | DiskFormat::Device => {
-            Box::new(raw::RawDisk::open_with_argmap(backend, &args))
+        DiskFormat::Device => {
+            let disk = raw::RawDisk::open_with_argmap(backend, &args);
+            let buffer = buffer::Buffer::new(disk)?;
+            Box::new(buffer)
         }
+        DiskFormat::RAW => Box::new(raw::RawDisk::open_with_argmap(backend, &args)),
         DiskFormat::VHD => Box::new(vhd::VhdDisk::open_with_argmap(backend, &args)?),
     })
 }
