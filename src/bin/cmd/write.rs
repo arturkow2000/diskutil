@@ -3,9 +3,10 @@ use std::convert::TryInto;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::{
-    utils::{get_partition_region, open_disk, AccessMode, PartitionId},
+    utils::{display_progress, get_partition_region, open_disk, AccessMode, PartitionId},
     CommonDiskOptions,
 };
 use anyhow::Context;
@@ -56,6 +57,9 @@ pub struct Command {
 
     #[clap(long = "in", about = "Input file")]
     input: Option<PathBuf>,
+
+    #[clap(long)]
+    progress: bool,
 }
 
 impl Command {
@@ -72,17 +76,18 @@ impl Command {
         })
     }
 
-    fn get_input_stream(&self) -> anyhow::Result<Box<dyn Read>> {
+    fn get_input_stream(&self) -> anyhow::Result<(Box<dyn Read>, Option<u64>)> {
         if let Some(path) = self.input.as_deref() {
-            Ok(Box::new(
-                OpenOptions::new()
-                    .read(true)
-                    .write(false)
-                    .open(path)
-                    .context("failed to open input file")?,
-            ))
+            let file = OpenOptions::new()
+                .read(true)
+                .write(false)
+                .open(path)
+                .context("failed to open input file")?;
+            let meta = file.metadata().context("failed to read file metadata")?;
+
+            Ok((Box::new(file), Some(meta.len())))
         } else {
-            Ok(Box::new(std::io::stdin()))
+            Ok((Box::new(std::io::stdin()), None))
         }
     }
 }
@@ -94,7 +99,7 @@ pub fn run(command: Command) -> anyhow::Result<()> {
         AccessMode::ReadWrite,
     )?;
 
-    let mut input = command.get_input_stream()?;
+    let (mut input, input_stream_length) = command.get_input_stream()?;
 
     let mut part = if let Some(ref part) = command.partition {
         let pt = load_partition_table(disk.as_mut()).context("failed to load partition table")?;
@@ -106,7 +111,10 @@ pub fn run(command: Command) -> anyhow::Result<()> {
     };
 
     let offset = command.get_offset(&part);
-    let length = command.get_length(&part).unwrap_or(u64::MAX);
+    let length = command
+        .get_length(&part)
+        .or(input_stream_length)
+        .unwrap_or(u64::MAX);
 
     // FIXME: we are currently wasting time for initializing buffer which
     // will overridden right away.
@@ -119,6 +127,7 @@ pub fn run(command: Command) -> anyhow::Result<()> {
 
     let mut left = length;
     while left > 0 {
+        let start_time = Instant::now();
         let n = min(left.try_into().unwrap_or(usize::MAX), buf.len());
         let r = input.read(&mut buf[..n]).context("read failed")?;
         part.write_all(&buf[..r]).context("write failed")?;
@@ -126,6 +135,13 @@ pub fn run(command: Command) -> anyhow::Result<()> {
 
         if r != n {
             break;
+        }
+
+        if command.progress {
+            let end_time = Instant::now();
+            let duration = end_time.duration_since(start_time);
+            let bytes_per_second = n as f64 / duration.as_secs_f64();
+            display_progress(left, length, bytes_per_second);
         }
     }
 

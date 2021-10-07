@@ -3,9 +3,10 @@ use std::convert::TryInto;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::{
-    utils::{get_partition_region, open_disk, AccessMode, PartitionId},
+    utils::{display_progress, get_partition_region, open_disk, AccessMode, PartitionId},
     CommonDiskOptions,
 };
 use anyhow::Context;
@@ -56,6 +57,9 @@ pub struct Command {
 
     #[clap(long = "out", about = "Output file")]
     output: Option<PathBuf>,
+
+    #[clap(long)]
+    progress: bool,
 }
 
 impl Command {
@@ -122,10 +126,18 @@ pub fn run(command: Command) -> anyhow::Result<()> {
 
     let mut left = length;
     while left > 0 {
+        let start_time = Instant::now();
         let n = min(left.try_into().unwrap_or(usize::MAX), buf.len());
         part.read_exact(&mut buf[..n]).context("read failed")?;
         out.write_all(&buf[..n]).context("write failed")?;
         left -= n as u64;
+
+        if command.progress {
+            let end_time = Instant::now();
+            let duration = end_time.duration_since(start_time);
+            let bytes_per_second = n as f64 / duration.as_secs_f64();
+            display_progress(left, length, bytes_per_second);
+        }
     }
 
     Ok(())

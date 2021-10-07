@@ -6,9 +6,11 @@ use uuid::Uuid;
 
 pub use open_disk::*;
 pub use part::*;
+pub use progress::*;
 
 mod open_disk;
 mod part;
+mod progress;
 
 pub fn setup_logging(verbosity_level: u32) {
     use fern::colors::{Color, ColoredLevelConfig};
