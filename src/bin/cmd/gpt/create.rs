@@ -7,7 +7,7 @@ use diskutil::part::mbr::Mbr;
 pub fn create(disk: &mut dyn Disk, opt: &CreateOptions) -> anyhow::Result<()> {
     match opt.mbr_mode {
         MbrCreateMode::Protective => Mbr::create_protective(disk)
-            .update()
+            .update(disk)
             .context("failed to write MBR")?,
     }
 

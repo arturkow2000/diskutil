@@ -15,6 +15,8 @@ pub trait PartitionTable {
 }
 
 pub fn load_partition_table(disk: &mut dyn Disk) -> Result<Box<dyn PartitionTable>> {
-    let gpt = gpt::Gpt::load(disk, gpt::ErrorAction::Abort)?;
-    Ok(Box::new(gpt))
+    match gpt::Gpt::load(disk, gpt::ErrorAction::Abort) {
+        Ok(gpt) => Ok(Box::new(gpt)),
+        Err(_) => Ok(Box::new(mbr::Mbr::load(disk)?)),
+    }
 }

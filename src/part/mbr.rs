@@ -1,8 +1,9 @@
-use crate::disk::{Disk, MediaType};
-use crate::{u8_array_uninitialized, Error, Result};
 use std::convert::TryInto;
 use std::io::{self, Cursor, SeekFrom, Write};
 
+use super::PartitionTable;
+use crate::disk::{Disk, MediaType};
+use crate::{u8_array_uninitialized, Error, Result};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 #[rustfmt::skip]
@@ -118,14 +119,12 @@ impl MbrPartition {
     }
 }
 
-pub struct Mbr<'a> {
-    #[allow(dead_code)]
-    disk: &'a mut dyn Disk,
+pub struct Mbr {
     pub partitions: [Option<MbrPartition>; 4],
     pub code: [u8; 446],
 }
-impl<'a> Mbr<'a> {
-    pub fn load(disk: &'a mut dyn Disk) -> Result<Self> {
+impl Mbr {
+    pub fn load(disk: &mut dyn Disk) -> Result<Self> {
         let media_type = disk.media_type();
         assert!(media_type == MediaType::HDD || media_type == MediaType::SSD);
 
@@ -147,13 +146,12 @@ impl<'a> Mbr<'a> {
         }
 
         Ok(Self {
-            disk,
             partitions,
             code: buf[..446].try_into().unwrap(),
         })
     }
 
-    pub fn update(&mut self) -> Result<()> {
+    pub fn update(&mut self, disk: &mut dyn Disk) -> Result<()> {
         let mut buffer = u8_array_uninitialized!(512);
         let mut cursor = Cursor::new(&mut buffer[..]);
         cursor.write_all(&self.code).unwrap();
@@ -170,13 +168,13 @@ impl<'a> Mbr<'a> {
 
         debug_assert_eq!(cursor.position(), 512);
 
-        self.disk.seek(SeekFrom::Start(0))?;
-        self.disk.write_all(&buffer[..])?;
+        disk.seek(SeekFrom::Start(0))?;
+        disk.write_all(&buffer[..])?;
 
         Ok(())
     }
 
-    pub fn create_protective(disk: &'a mut dyn Disk) -> Self {
+    pub fn create_protective(disk: &mut dyn Disk) -> Self {
         let sector_size = disk.sector_size();
         let size = disk.disk_size();
         let num_sectors = size / sector_size as u64;
@@ -196,7 +194,21 @@ impl<'a> Mbr<'a> {
                 None,
             ],
             code: CODE_NONBOOTABLE,
-            disk,
         }
+    }
+}
+
+impl PartitionTable for Mbr {
+    fn get_partition_start_end(&self, index: u32) -> Option<(u64, u64)> {
+        if let Some(Some(part)) = self.partitions.get(index as usize) {
+            Some((part.lba as u64, part.lba as u64 + part.num_sectors as u64))
+        } else {
+            None
+        }
+    }
+
+    fn find_partition_by_guid(&self, _guid: uuid::Uuid) -> Result<(u32, &dyn super::Partition)> {
+        // MBR has no GUIDs
+        Err(Error::NotSupported)
     }
 }
