@@ -120,6 +120,7 @@ pub fn hexdump_from_reader<T: Read + ?Sized>(
                         println!("*");
                         a = true;
                     }
+                    address += opt.words_per_row;
                 } else {
                     hexdump_row(address, s, opt);
                     address += opt.words_per_row;
