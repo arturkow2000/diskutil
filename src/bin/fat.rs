@@ -6,7 +6,7 @@ mod utils;
 
 use chrono::{DateTime, Local};
 use clap::Clap;
-use diskutil::disk::{open_disk, Backend, DeviceBackend, DiskFormat, DiskSlice, FileBackend};
+use diskutil::disk::{open_disk, Backend, DiskFormat, DiskSlice, FileBackend};
 use diskutil::part::load_partition_table;
 use diskutil::Result;
 use std::cmp::min;
@@ -15,6 +15,9 @@ use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::result;
+
+#[cfg(feature = "device")]
+use diskutil::disk::DeviceBackend;
 
 fn parse_sector_size(x: &str) -> result::Result<usize, String> {
     let x = x.parse::<usize>().map_err(|e| e.to_string())?;
@@ -113,7 +116,14 @@ macro_rules! u8_vector_uninitialized {
 
 fn get_backend(path: &Path, format: DiskFormat) -> Result<Box<dyn Backend>> {
     if format == DiskFormat::Device {
-        Ok(DeviceBackend::new(path, true)?)
+        #[cfg(feature = "device")]
+        {
+            Ok(DeviceBackend::new(path, true)?)
+        }
+        #[cfg(not(feature = "device"))]
+        {
+            Err(diskutil::Error::NotSupported)
+        }
     } else {
         Ok(FileBackend::new(
             OpenOptions::new().read(true).write(true).open(path)?,

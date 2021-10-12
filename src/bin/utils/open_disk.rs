@@ -2,7 +2,10 @@ use std::fs::OpenOptions;
 use std::path::Path;
 
 use anyhow::Context;
-use diskutil::disk::{self, ArgumentMap, Backend, DeviceBackend, Disk, DiskFormat, FileBackend};
+use diskutil::disk::{self, ArgumentMap, Backend, Disk, DiskFormat, FileBackend};
+
+#[cfg(feature = "device")]
+use diskutil::disk::DeviceBackend;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AccessMode {
@@ -27,15 +30,22 @@ pub fn open_disk(
     access: AccessMode,
 ) -> anyhow::Result<Box<dyn Disk>> {
     let backend: Box<dyn Backend> = if format == DiskFormat::Device {
-        DeviceBackend::new(
-            path,
-            if access == AccessMode::ReadOnly {
-                false
-            } else {
-                true
-            },
-        )
-        .context("failed to open device")?
+        #[cfg(feature = "device")]
+        {
+            DeviceBackend::new(
+                path,
+                if access == AccessMode::ReadOnly {
+                    false
+                } else {
+                    true
+                },
+            )
+            .context("failed to open device")?
+        }
+        #[cfg(not(feature = "device"))]
+        {
+            anyhow::bail!("physical device support was not enabled when compiling")
+        }
     } else {
         FileBackend::new(
             OpenOptions::new()
