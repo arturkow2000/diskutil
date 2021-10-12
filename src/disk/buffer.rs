@@ -222,18 +222,17 @@ where
 
                 let do_direct_write = n == self.block_size as usize && offset == 0;
 
-                let eof = !if do_direct_write {
-                    self.write_block_from(&buf[bytes_written..bytes_written + n])?
+                if do_direct_write {
+                    let eof = !self.write_block_from(&buf[bytes_written..bytes_written + n])?;
+                    if eof {
+                        break;
+                    }
                 } else {
-                    self.read_block()?
-                };
-
-                if eof {
-                    break;
-                }
-
-                if !do_direct_write {
-                    // write_blocks() advances stream position, need to restore
+                    let eof = !self.read_block()?;
+                    if eof {
+                        break;
+                    }
+                    // read_block() advances stream position, need to restore
                     // previous position to write same sector we just read
                     self.seek(SeekFrom::Current(-(self.block_size as i64)))?;
 
