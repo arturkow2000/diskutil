@@ -22,6 +22,9 @@ enum Command {
 struct Options {
     #[clap(subcommand)]
     pub command: Command,
+
+    #[clap(short, parse(from_occurrences))]
+    pub verbose: u32,
 }
 
 #[derive(Clap)]
@@ -33,6 +36,8 @@ struct CommonDiskOptions {
 
 fn main() -> anyhow::Result<()> {
     let o = Options::parse();
+
+    utils::setup_logging(o.verbose);
 
     match o.command {
         Command::Create(c) => cmd::create::run(c),
