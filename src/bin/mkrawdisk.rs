@@ -2,7 +2,7 @@ extern crate better_panic;
 extern crate clap;
 extern crate diskutil;
 
-use clap::Clap;
+use clap::Parser;
 use diskutil::Result;
 use std::cmp::min;
 use std::convert::TryInto;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 mod utils;
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct Options {
     #[clap(short, long, parse(from_occurrences))]
     pub verbose: u32,

@@ -4,12 +4,12 @@ use std::path::PathBuf;
 
 use crate::utils::parse_size;
 use anyhow::Context;
-use clap::Clap;
+use clap::Parser;
 use diskutil::disk::vhd::{DiskType as VhdDiskType, VhdDisk};
 use diskutil::disk::DiskFormat;
 use diskutil::disk::FileBackend;
 
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(about = "Create disk images")]
 pub struct Command {
     #[clap(short, long)]
@@ -18,7 +18,7 @@ pub struct Command {
     #[clap(
         short = 's',
         long = "static",
-        about = "Create statically sized disk, by default dynamically sized disk is created if supported by disk format."
+        help = "Create statically sized disk, by default dynamically sized disk is created if supported by disk format."
     )]
     pub statically_sized: bool,
 

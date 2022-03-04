@@ -5,7 +5,7 @@ extern crate fatfs;
 mod utils;
 
 use chrono::{DateTime, Local};
-use clap::Clap;
+use clap::Parser;
 use diskutil::disk::{open_disk, Backend, DiskFormat, DiskSlice, FileBackend};
 use diskutil::part::load_partition_table;
 use diskutil::Result;
@@ -37,7 +37,7 @@ fn parse_fat_type(x: &str) -> result::Result<fatfs::FatType, &'static str> {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct Options {
     #[clap(short, long, parse(from_occurrences))]
     pub verbose: u32,
@@ -45,7 +45,7 @@ struct Options {
     #[clap(name = "file", parse(from_os_str))]
     pub file: PathBuf,
 
-    #[clap(long, name = "sector_size", parse(try_from_str = parse_sector_size), default_value = "512", long_about = "Set sector size for RAW disks, for other disk formats this is ignored.")]
+    #[clap(long, name = "sector_size", parse(try_from_str = parse_sector_size), default_value = "512", long_help = "Set sector size for RAW disks, for other disk formats this is ignored.")]
     pub sector_size: usize,
 
     #[clap(short = 'f', long, parse(try_from_str))]
@@ -58,7 +58,7 @@ struct Options {
     pub subcommand: SubCommand,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 enum SubCommand {
     #[clap(alias = "ls")]
     Dir(SubCommandDirCat),
@@ -76,32 +76,32 @@ enum SubCommand {
     MkDir(SubCommandMkDir),
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct SubCommandDirCat {
     pub path: PathBuf,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct SubCommandCopy {
     pub from: PathBuf,
     pub to: PathBuf,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct SubCommandFormat {
     #[clap(short = 'F')]
     #[clap(parse(try_from_str = parse_fat_type))]
     pub fat_type: fatfs::FatType,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct SubCommandDelete {
     pub path: PathBuf,
     #[clap(short = 'r', long = "recursive")]
     pub recursive: bool,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct SubCommandMkDir {
     pub path: PathBuf,
 }

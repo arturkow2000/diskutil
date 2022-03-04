@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Clap, Subcommand};
+use clap::{Parser, Subcommand};
 use diskutil::disk::DiskFormat;
 
 mod cmd;
@@ -18,7 +18,7 @@ enum Command {
     Write(cmd::write::Command),
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct Options {
     #[clap(subcommand)]
     pub command: Command,
@@ -27,7 +27,7 @@ struct Options {
     pub verbose: u32,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct CommonDiskOptions {
     #[clap(short, long)]
     format: DiskFormat,

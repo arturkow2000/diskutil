@@ -8,13 +8,13 @@ use crate::{
     CommonDiskOptions,
 };
 use anyhow::Context;
-use clap::{ArgGroup, Clap};
+use clap::{ArgGroup, Parser};
 use diskutil::disk::{Disk, DiskSlice};
 use diskutil::part::load_partition_table;
 
 mod hexdump_util;
 
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(group = ArgGroup::new("grp_offset").required(true))]
 #[clap(group = ArgGroup::new("grp_length").required(false))]
 #[clap(about = "HEX + ASCII dump, similar to hexdump tool from Unix.")]
@@ -25,14 +25,14 @@ pub struct Command {
     #[clap(
         short,
         group = "grp_offset",
-        about = "Offset in bytes from where to start hexdump, relative to selected partition"
+        help = "Offset in bytes from where to start hexdump, relative to selected partition"
     )]
     offset: Option<u64>,
 
     #[clap(
         short,
         group = "grp_offset",
-        about = "Offset in sectors from where to start hexdump, relative to selected partition"
+        help = "Offset in sectors from where to start hexdump, relative to selected partition"
     )]
     sector: Option<u64>,
 
@@ -40,7 +40,7 @@ pub struct Command {
         short = 'l',
         group = "grp_length",
         value_name = "NUMBER OF BYTES",
-        about = "Number of bytes to dump"
+        help = "Number of bytes to dump"
     )]
     length_in_bytes: Option<u64>,
 
@@ -48,11 +48,11 @@ pub struct Command {
         short = 'n',
         group = "grp_length",
         value_name = "NUMBER OF SECTORS",
-        about = "Number of sectors to dump"
+        help = "Number of sectors to dump"
     )]
     length_in_sectors: Option<u64>,
 
-    #[clap(short = 'p', about = "Partition to dump from")]
+    #[clap(short = 'p', help = "Partition to dump from")]
     partition: Option<PartitionId>,
 }
 

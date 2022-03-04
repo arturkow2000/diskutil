@@ -5,7 +5,7 @@ use crate::{
     CommonDiskOptions,
 };
 use anyhow::Context;
-use clap::{ArgEnum, Clap};
+use clap::{ArgEnum, Parser};
 use diskutil::part::gpt::{ErrorAction, Gpt, GptPartitionType};
 use uuid::Uuid;
 
@@ -33,47 +33,47 @@ fn parse_partition_type(s: &str) -> ::std::result::Result<Uuid, String> {
     }
 }
 
-#[derive(ArgEnum)]
+#[derive(Copy, Clone, ArgEnum)]
 pub enum MbrCreateMode {
     Protective,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct CreateOptions {
     #[clap(
         arg_enum,
         long = "mbr",
         default_value = "protective",
-        about = "Select MBR type to create"
+        help = "Select MBR type to create"
     )]
     mbr_mode: MbrCreateMode,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct AddOptions {
     #[clap(parse(try_from_str = parse_size))]
     size: u64,
 
-    #[clap(short, long, about = "Partition first sector")]
+    #[clap(short, long, help = "Partition first sector")]
     start: Option<u64>,
 
     #[clap(short, long)]
     name: Option<String>,
 
-    #[clap(short = 'u', long = "guid", about = "Unique GUID")]
+    #[clap(short = 'u', long = "guid", help = "Unique GUID")]
     unique_guid: Option<Uuid>,
 
-    #[clap(short = 't', long = "type", parse(try_from_str = parse_partition_type), long_about = "Type GUID or type alias eg. msbasic, msreserved, esp")]
+    #[clap(short = 't', long = "type", parse(try_from_str = parse_partition_type), long_help = "Type GUID or type alias eg. msbasic, msreserved, esp")]
     type_guid: Option<Uuid>,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct DeleteOptions {
     #[clap(parse(try_from_str))]
     id: PartitionId,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct ModifyOptions {
     #[clap(parse(try_from_str))]
     id: PartitionId,
@@ -82,14 +82,14 @@ pub struct ModifyOptions {
     name: Option<String>,
 
     // TODO: support generating new unique GUID
-    #[clap(short = 'u', long = "guid", about = "Unique GUID")]
+    #[clap(short = 'u', long = "guid", help = "Unique GUID")]
     unique_guid: Option<Uuid>,
 
-    #[clap(short = 't', long = "type", parse(try_from_str = parse_partition_type), long_about = "Type GUID or type alias eg. msbasic, msreserved, esp")]
+    #[clap(short = 't', long = "type", parse(try_from_str = parse_partition_type), long_help = "Type GUID or type alias eg. msbasic, msreserved, esp")]
     type_guid: Option<Uuid>,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum SubCommand {
     #[clap(about = "Create new partition table")]
     Create(CreateOptions),
@@ -112,7 +112,7 @@ pub enum SubCommand {
     Modify(ModifyOptions),
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(about = "Manipulate GUID partition table")]
 pub struct Command {
     #[clap(flatten)]

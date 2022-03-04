@@ -10,11 +10,11 @@ use crate::{
     CommonDiskOptions,
 };
 use anyhow::Context;
-use clap::{ArgGroup, Clap};
+use clap::{ArgGroup, Parser};
 use diskutil::disk::{Disk, DiskSlice};
 use diskutil::part::load_partition_table;
 
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(group = ArgGroup::new("grp_offset").required(true))]
 #[clap(group = ArgGroup::new("grp_length").required(false))]
 #[clap(about = "Write raw data to disk")]
@@ -25,14 +25,14 @@ pub struct Command {
     #[clap(
         short,
         group = "grp_offset",
-        about = "Offset in bytes where to to write, relative to selected partition"
+        help = "Offset in bytes where to to write, relative to selected partition"
     )]
     offset: Option<u64>,
 
     #[clap(
         short,
         group = "grp_offset",
-        about = "Offset in sectors where to write, relative to selected partition"
+        help = "Offset in sectors where to write, relative to selected partition"
     )]
     sector: Option<u64>,
 
@@ -40,7 +40,7 @@ pub struct Command {
         short = 'l',
         group = "grp_length",
         value_name = "NUMBER OF BYTES",
-        about = "Maximum number of bytes to write"
+        help = "Maximum number of bytes to write"
     )]
     length_in_bytes: Option<u64>,
 
@@ -48,14 +48,14 @@ pub struct Command {
         short = 'n',
         group = "grp_length",
         value_name = "NUMBER OF SECTORS",
-        about = "Maximum number of sectors to write"
+        help = "Maximum number of sectors to write"
     )]
     length_in_sectors: Option<u64>,
 
-    #[clap(short = 'p', about = "Partition to read from")]
+    #[clap(short = 'p', help = "Partition to read from")]
     partition: Option<PartitionId>,
 
-    #[clap(long = "in", about = "Input file")]
+    #[clap(long = "in", help = "Input file")]
     input: Option<PathBuf>,
 
     #[clap(long)]

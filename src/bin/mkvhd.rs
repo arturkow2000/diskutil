@@ -2,7 +2,7 @@ extern crate better_panic;
 extern crate clap;
 extern crate diskutil;
 
-use clap::Clap;
+use clap::Parser;
 
 use diskutil::disk::vhd::VhdDisk;
 use diskutil::disk::FileBackend;
@@ -29,7 +29,7 @@ impl VhdType {
     }
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct Options {
     #[clap(short, long, parse(from_occurrences))]
     pub verbose: u32,
