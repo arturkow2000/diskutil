@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
     match o.command {
         Command::Create(c) => cmd::create::run(&o.disk, c),
         Command::Gpt(c) => cmd::gpt::run(&o.disk, c),
-        Command::Hexdump(c) => cmd::hexdump::run(c),
+        Command::Hexdump(c) => cmd::hexdump::run(&o.disk, c),
         Command::Read(c) => cmd::read::run(&o.disk, c),
         Command::Write(c) => cmd::write::run(&o.disk, c),
         Command::Fat(c) => cmd::fat::run(&o.disk, c),
