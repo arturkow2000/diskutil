@@ -115,17 +115,14 @@ pub enum SubCommand {
 #[derive(Parser)]
 #[clap(about = "Manipulate GUID partition table")]
 pub struct Command {
-    #[clap(flatten)]
-    disk: CommonDiskOptions,
-
     #[clap(subcommand)]
     cmd: SubCommand,
 }
 
-pub fn run(command: Command) -> anyhow::Result<()> {
+pub fn run(disk: &CommonDiskOptions, command: Command) -> anyhow::Result<()> {
     let mut disk = open_disk(
-        command.disk.file.as_path(),
-        command.disk.format,
+        disk.file.as_path(),
+        disk.format,
         access::get_access_mode(&command),
     )?;
 

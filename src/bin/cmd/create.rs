@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 
-use crate::utils::parse_size;
+use crate::{utils::parse_size, CommonDiskOptions};
 use anyhow::Context;
 use clap::Parser;
 use diskutil::disk::vhd::{DiskType as VhdDiskType, VhdDisk};
@@ -12,17 +12,12 @@ use diskutil::disk::FileBackend;
 #[derive(Parser)]
 #[clap(about = "Create disk images")]
 pub struct Command {
-    #[clap(short, long)]
-    pub format: DiskFormat,
-
     #[clap(
         short = 's',
         long = "static",
         help = "Create statically sized disk, by default dynamically sized disk is created if supported by disk format."
     )]
     pub statically_sized: bool,
-
-    pub file: PathBuf,
 
     #[clap(parse(try_from_str = parse_size))]
     pub size: u64,
@@ -39,8 +34,8 @@ pub fn create_vhd(file: File, size: u64, disk_type: VhdDiskType) -> anyhow::Resu
     }
 }
 
-pub fn run(command: Command) -> anyhow::Result<()> {
-    match command.format {
+pub fn run(disk: &CommonDiskOptions, command: Command) -> anyhow::Result<()> {
+    match disk.format {
         DiskFormat::RAW => {
             unimplemented!()
         }
@@ -49,7 +44,7 @@ pub fn run(command: Command) -> anyhow::Result<()> {
                 .read(false)
                 .write(true)
                 .create_new(true)
-                .open(command.file)
+                .open(&disk.file)
                 .context("failed to create file")?,
             command.size,
             if command.statically_sized {

@@ -19,9 +19,6 @@ use diskutil::part::load_partition_table;
 #[clap(group = ArgGroup::new("grp_length").required(false))]
 #[clap(about = "Write raw data to disk")]
 pub struct Command {
-    #[clap(flatten)]
-    disk: CommonDiskOptions,
-
     #[clap(
         short,
         group = "grp_offset",
@@ -92,12 +89,8 @@ impl Command {
     }
 }
 
-pub fn run(command: Command) -> anyhow::Result<()> {
-    let mut disk = open_disk(
-        command.disk.file.as_path(),
-        command.disk.format,
-        AccessMode::ReadWrite,
-    )?;
+pub fn run(disk: &CommonDiskOptions, command: Command) -> anyhow::Result<()> {
+    let mut disk = open_disk(disk.file.as_path(), disk.format, AccessMode::ReadWrite)?;
 
     let (mut input, input_stream_length) = command.get_input_stream()?;
 

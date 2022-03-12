@@ -109,13 +109,9 @@ macro_rules! u8_vector_uninitialized {
     }};
 }
 
-pub fn run(command: Command) -> anyhow::Result<()> {
+pub fn run(disk: &CommonDiskOptions, command: Command) -> anyhow::Result<()> {
     // TODO: pass sector_size
-    let mut disk = open_disk(
-        command.disk.file.as_path(),
-        command.disk.format,
-        AccessMode::ReadWrite,
-    )?;
+    let mut disk = open_disk(disk.file.as_path(), disk.format, AccessMode::ReadWrite)?;
 
     let mut slice = if let Some(partition) = command.partition {
         let pt = load_partition_table(disk.as_mut()).unwrap();

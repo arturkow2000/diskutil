@@ -24,13 +24,20 @@ struct Options {
     #[clap(subcommand)]
     pub command: Command,
 
-    #[clap(short, parse(from_occurrences))]
+    #[clap(short, parse(from_occurrences), help = "Increase verbosity level")]
     pub verbose: u32,
+
+    #[clap(flatten)]
+    pub disk: CommonDiskOptions,
 }
 
 #[derive(Parser)]
-struct CommonDiskOptions {
-    #[clap(short, long)]
+pub struct CommonDiskOptions {
+    #[cfg(feature = "device")]
+    #[clap(short, long, help = "Disk type [raw, vhd, device]")]
+    format: DiskFormat,
+    #[cfg(not(feature = "device"))]
+    #[clap(short, long, help = "Disk type [raw, vhd]")]
     format: DiskFormat,
     file: PathBuf,
 }
@@ -41,11 +48,11 @@ fn main() -> anyhow::Result<()> {
     utils::setup_logging(o.verbose);
 
     match o.command {
-        Command::Create(c) => cmd::create::run(c),
-        Command::Gpt(c) => cmd::gpt::run(c),
+        Command::Create(c) => cmd::create::run(&o.disk, c),
+        Command::Gpt(c) => cmd::gpt::run(&o.disk, c),
         Command::Hexdump(c) => cmd::hexdump::run(c),
-        Command::Read(c) => cmd::read::run(c),
-        Command::Write(c) => cmd::write::run(c),
-        Command::Fat(c) => cmd::fat::run(c),
+        Command::Read(c) => cmd::read::run(&o.disk, c),
+        Command::Write(c) => cmd::write::run(&o.disk, c),
+        Command::Fat(c) => cmd::fat::run(&o.disk, c),
     }
 }
