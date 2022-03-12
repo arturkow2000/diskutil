@@ -1,6 +1,7 @@
+use std::cmp::min;
 use std::convert::TryInto;
 use std::fs::{File, OpenOptions};
-use std::path::PathBuf;
+use std::io::Write;
 
 use crate::{utils::parse_size, CommonDiskOptions};
 use anyhow::Context;
@@ -34,11 +35,35 @@ pub fn create_vhd(file: File, size: u64, disk_type: VhdDiskType) -> anyhow::Resu
     }
 }
 
+pub fn create_raw(mut file: File, size: u64) -> anyhow::Result<()> {
+    let zero = vec![0; 65536];
+
+    // FIXME: should allocate space using OS specific calls
+    // Zeroing may be unnecessary and it contributes to disk fragmentation and
+    // wear-out.
+    let mut total_left = size;
+    while total_left > 0 {
+        let n = min(zero.len(), total_left.try_into().unwrap_or(usize::MAX));
+        file.write_all(&zero[..n])?;
+        total_left -= n as u64;
+    }
+
+    file.flush()?;
+
+    Ok(())
+}
+
 pub fn run(disk: &CommonDiskOptions, command: Command) -> anyhow::Result<()> {
     match disk.format {
-        DiskFormat::RAW => {
-            unimplemented!()
-        }
+        DiskFormat::RAW => create_raw(
+            OpenOptions::new()
+                .read(false)
+                .write(true)
+                .create_new(true)
+                .open(&disk.file)
+                .context("failed to create file")?,
+            command.size,
+        ),
         DiskFormat::VHD => create_vhd(
             OpenOptions::new()
                 .read(false)

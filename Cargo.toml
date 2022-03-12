@@ -13,10 +13,6 @@ name = "vhd2bin"
 path = "src/bin/vhd2bin.rs"
 
 [[bin]]
-name = "mkvhd"
-path = "src/bin/mkvhd.rs"
-
-[[bin]]
 name = "bin2vhd"
 path = "src/bin/bin2vhd.rs"
 
