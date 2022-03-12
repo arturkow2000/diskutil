@@ -1,14 +1,9 @@
-#[macro_use]
-extern crate log;
 extern crate fatfs;
-
-mod utils;
 
 use chrono::{DateTime, Local};
 use clap::Parser;
-use diskutil::disk::{open_disk, Backend, DiskFormat, DiskSlice, FileBackend};
+use diskutil::disk::DiskSlice;
 use diskutil::part::load_partition_table;
-use diskutil::Result;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::fs::OpenOptions;
@@ -18,6 +13,11 @@ use std::result;
 
 #[cfg(feature = "device")]
 use diskutil::disk::DeviceBackend;
+
+use crate::{
+    utils::{open_disk, AccessMode, PartitionId},
+    CommonDiskOptions,
+};
 
 fn parse_sector_size(x: &str) -> result::Result<usize, String> {
     let x = x.parse::<usize>().map_err(|e| e.to_string())?;
@@ -38,28 +38,23 @@ fn parse_fat_type(x: &str) -> result::Result<fatfs::FatType, &'static str> {
 }
 
 #[derive(Parser)]
-struct Options {
-    #[clap(short, long, parse(from_occurrences))]
-    pub verbose: u32,
-
-    #[clap(name = "file", parse(from_os_str))]
-    pub file: PathBuf,
+#[clap(about = "Access FAT filesystem")]
+pub struct Command {
+    #[clap(flatten)]
+    disk: CommonDiskOptions,
 
     #[clap(long, name = "sector_size", parse(try_from_str = parse_sector_size), default_value = "512", long_help = "Set sector size for RAW disks, for other disk formats this is ignored.")]
     pub sector_size: usize,
 
-    #[clap(short = 'f', long, parse(try_from_str))]
-    pub disk_format: DiskFormat,
-
     #[clap(short = 'p', long = "partition", parse(try_from_str))]
-    pub partition: Option<utils::PartitionId>,
+    pub partition: Option<PartitionId>,
 
     #[clap(subcommand)]
     pub subcommand: SubCommand,
 }
 
 #[derive(Parser)]
-enum SubCommand {
+pub enum SubCommand {
     #[clap(alias = "ls")]
     Dir(SubCommandDirCat),
     #[clap(alias = "type")]
@@ -77,32 +72,32 @@ enum SubCommand {
 }
 
 #[derive(Parser)]
-struct SubCommandDirCat {
+pub struct SubCommandDirCat {
     pub path: PathBuf,
 }
 
 #[derive(Parser)]
-struct SubCommandCopy {
+pub struct SubCommandCopy {
     pub from: PathBuf,
     pub to: PathBuf,
 }
 
 #[derive(Parser)]
-struct SubCommandFormat {
+pub struct SubCommandFormat {
     #[clap(short = 'F')]
     #[clap(parse(try_from_str = parse_fat_type))]
     pub fat_type: fatfs::FatType,
 }
 
 #[derive(Parser)]
-struct SubCommandDelete {
+pub struct SubCommandDelete {
     pub path: PathBuf,
     #[clap(short = 'r', long = "recursive")]
     pub recursive: bool,
 }
 
 #[derive(Parser)]
-struct SubCommandMkDir {
+pub struct SubCommandMkDir {
     pub path: PathBuf,
 }
 
@@ -114,40 +109,19 @@ macro_rules! u8_vector_uninitialized {
     }};
 }
 
-fn get_backend(path: &Path, format: DiskFormat) -> Result<Box<dyn Backend>> {
-    if format == DiskFormat::Device {
-        #[cfg(feature = "device")]
-        {
-            Ok(DeviceBackend::new(path, true)?)
-        }
-        #[cfg(not(feature = "device"))]
-        {
-            Err(diskutil::Error::NotSupported)
-        }
-    } else {
-        Ok(FileBackend::new(
-            OpenOptions::new().read(true).write(true).open(path)?,
-        )?)
-    }
-}
-
-fn main() -> Result<()> {
-    better_panic::install();
-    let options = Options::parse();
-    utils::setup_logging(options.verbose);
-
+pub fn run(command: Command) -> anyhow::Result<()> {
     // TODO: pass sector_size
     let mut disk = open_disk(
-        options.disk_format,
-        get_backend(options.file.as_path(), options.disk_format)?,
-        Default::default(),
+        command.disk.file.as_path(),
+        command.disk.format,
+        AccessMode::ReadWrite,
     )?;
 
-    let mut slice = if let Some(partition) = options.partition {
+    let mut slice = if let Some(partition) = command.partition {
         let pt = load_partition_table(disk.as_mut()).unwrap();
         let (s, e) = match partition {
-            utils::PartitionId::Index(i) => pt.get_partition_start_end(i).unwrap(),
-            utils::PartitionId::Guid(g) => {
+            PartitionId::Index(i) => pt.get_partition_start_end(i).unwrap(),
+            PartitionId::Guid(g) => {
                 let x = pt.find_partition_by_guid(g).unwrap();
                 (x.1.start(), x.1.end())
             }
@@ -158,13 +132,13 @@ fn main() -> Result<()> {
         DiskSlice::new(disk.as_mut(), 0, size)
     };
 
-    if let SubCommand::Format(p) = options.subcommand {
+    if let SubCommand::Format(p) = command.subcommand {
         return fat_format(&mut slice, &p);
     }
     let fs = fatfs::FileSystem::new(&mut slice, fatfs::FsOptions::new()).unwrap();
     let root = fs.root_dir();
 
-    match options.subcommand {
+    match command.subcommand {
         SubCommand::Dir(d) => {
             if d.path.parent().is_none() {
                 list_directory(&root);
@@ -296,11 +270,11 @@ fn convert_path(p: &Path) -> String {
             }
         }
     }
-    trace!("Converted path: {}", s.as_str());
+    log::trace!("Converted path: {}", s.as_str());
     s
 }
 
-fn fat_format<T>(disk: &mut T, p: &SubCommandFormat) -> Result<()>
+fn fat_format<T>(disk: &mut T, p: &SubCommandFormat) -> anyhow::Result<()>
 where
     T: Read + Seek + Write,
 {
@@ -332,7 +306,7 @@ where
                 continue;
             }
 
-            error!("Enter: {}", e.file_name());
+            log::error!("Enter: {}", e.file_name());
             todo!()
         }
     }

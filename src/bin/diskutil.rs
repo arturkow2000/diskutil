@@ -16,6 +16,7 @@ enum Command {
     Hexdump(cmd::hexdump::Command),
     Read(cmd::read::Command),
     Write(cmd::write::Command),
+    Fat(cmd::fat::Command),
 }
 
 #[derive(Parser)]
@@ -45,5 +46,6 @@ fn main() -> anyhow::Result<()> {
         Command::Hexdump(c) => cmd::hexdump::run(c),
         Command::Read(c) => cmd::read::run(c),
         Command::Write(c) => cmd::write::run(c),
+        Command::Fat(c) => cmd::fat::run(c),
     }
 }
