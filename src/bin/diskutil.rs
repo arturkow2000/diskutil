@@ -13,6 +13,7 @@ extern crate anyhow;
 enum Command {
     Create(cmd::create::Command),
     Gpt(cmd::gpt::Command),
+    Mbr(cmd::mbr::Command),
     Hexdump(cmd::hexdump::Command),
     Read(cmd::read::Command),
     Write(cmd::write::Command),
@@ -50,6 +51,7 @@ fn main() -> anyhow::Result<()> {
     match o.command {
         Command::Create(c) => cmd::create::run(&o.disk, c),
         Command::Gpt(c) => cmd::gpt::run(&o.disk, c),
+        Command::Mbr(c) => cmd::mbr::run(&o.disk, c),
         Command::Hexdump(c) => cmd::hexdump::run(&o.disk, c),
         Command::Read(c) => cmd::read::run(&o.disk, c),
         Command::Write(c) => cmd::write::run(&o.disk, c),
