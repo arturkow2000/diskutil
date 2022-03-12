@@ -43,6 +43,23 @@ pub const CODE_NONBOOTABLE: [u8; 446] =
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
+#[allow(dead_code)]
+fn chs_to_lba(chs: (u16, u8, u8), heads_per_cylinder: u32, sectors_per_track: u32) -> u32 {
+    (chs.0 as u32 * heads_per_cylinder + chs.1 as u32) * sectors_per_track + (chs.2 as u32 - 1)
+}
+
+#[allow(dead_code)]
+fn lba_to_chs(lba: u32, heads_per_cylinder: u32, sectors_per_track: u32) -> (u16, u8, u8) {
+    let c = lba / (heads_per_cylinder * sectors_per_track);
+    let h = (lba / sectors_per_track) % heads_per_cylinder;
+    let s = (lba % sectors_per_track) + 1;
+    (
+        c.try_into().unwrap(),
+        h.try_into().unwrap(),
+        s.try_into().unwrap(),
+    )
+}
+
 pub struct MbrPartition {
     pub flags: u8,
     pub start_chs: (u16, u8, u8),
@@ -57,16 +74,16 @@ impl MbrPartition {
         let mut cursor = Cursor::new(buf);
 
         let flags = cursor.read_u8().unwrap();
-        if flags == 0 {
-            return None;
-        }
-
         let start_chs = Self::decode_chs(&mut cursor);
         let partition_type = cursor.read_u8().unwrap();
         let end_chs = Self::decode_chs(&mut cursor);
 
         let lba = cursor.read_u32::<LittleEndian>().unwrap();
         let num_sectors = cursor.read_u32::<LittleEndian>().unwrap();
+
+        if num_sectors == 0 {
+            return None;
+        }
 
         debug_assert_eq!(cursor.position(), 16);
 
@@ -79,6 +96,36 @@ impl MbrPartition {
             num_sectors,
             sector_size,
         })
+    }
+
+    /// Returns LBA of the first sector belonging to partition.
+    pub fn start(&self) -> u32 {
+        // TODO: should verify whether LBA is valid
+        // Some MBRs (older) may use only CHS addressing. CHS used to depend on
+        // underlying disk parameters, since IDE drives came out, CHS is
+        // emulated. To implement CHS support we need support in disk layer for
+        // querying disk geometry.
+        //
+        // In case of physial disks OS provides geometry, in case of virtual
+        // disks specific disk format may or may not have geometry. In case of
+        // raw disks there is no way to query geometry except by assuming some
+        // defaults (which user could override if needed). Also geometry could
+        // be guessed by brute forcing all possible HPC/SPT combinations and
+        // comparing results against LBA from partition entries.
+
+        self.lba
+    }
+
+    /// Returns LBA of the last sector belonging to partition.
+    pub fn end(&self) -> u32 {
+        // TODO: CHS support, see the comment above
+
+        self.lba + self.num_sectors - 1
+    }
+
+    /// Returns partition size in sectors.
+    pub fn size(&self) -> u32 {
+        self.num_sectors
     }
 
     fn decode_chs<T: AsRef<[u8]>>(cursor: &mut Cursor<T>) -> (u16, u8, u8) {
@@ -182,11 +229,11 @@ impl Mbr {
             partitions: [
                 Some(MbrPartition {
                     flags: 0,
-                    start_chs: (0, 0, 1),
+                    start_chs: (0, 0, 2),
                     end_chs: (1023, 255, 63),
                     partition_type: 0xEE,
                     lba: 1,
-                    num_sectors: (num_sectors).try_into().unwrap_or(u32::MAX),
+                    num_sectors: (num_sectors - 1).try_into().unwrap_or(u32::MAX),
                     sector_size,
                 }),
                 None,
@@ -210,5 +257,66 @@ impl PartitionTable for Mbr {
     fn find_partition_by_guid(&self, _guid: uuid::Uuid) -> Result<(u32, &dyn super::Partition)> {
         // MBR has no GUIDs
         Err(Error::NotSupported)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::MbrPartition;
+
+    fn decode_chs(chs: [u8; 3]) -> (u16, u8, u8) {
+        let mut cursor = Cursor::new(&chs[..]);
+        MbrPartition::decode_chs(&mut cursor)
+    }
+
+    fn encode_chs(chs: (u16, u8, u8)) -> [u8; 3] {
+        let mut data = [0u8; 3];
+        let mut cursor = Cursor::new(&mut data[..]);
+        MbrPartition::encode_chs(chs, &mut cursor).unwrap();
+        data
+    }
+
+    fn chs_to_lba(chs: (u16, u8, u8)) -> u32 {
+        super::chs_to_lba(chs, 16, 63)
+    }
+
+    fn lba_to_chs(lba: u32) -> (u16, u8, u8) {
+        super::lba_to_chs(lba, 16, 63)
+    }
+
+    #[test]
+    fn test_decode_chs() {
+        assert_eq!(decode_chs([0x00, 0x20, 0x21]), (33, 0, 32));
+        assert_eq!(decode_chs([0x00, 0x02, 0x00]), (0, 0, 2));
+        assert_eq!(decode_chs([0xee, 0xff, 0xff]), (1023, 238, 63));
+        assert_eq!(decode_chs([0xff, 0xff, 0xff]), (1023, 255, 63));
+        assert_eq!(decode_chs([0x14, 0x10, 0x04]), (4, 20, 16));
+    }
+
+    #[test]
+    fn test_encode_chs() {
+        assert_eq!(encode_chs((33, 0, 32)), [0x00, 0x20, 0x21]);
+        assert_eq!(encode_chs((0, 0, 2)), [0x00, 0x02, 0x00]);
+        assert_eq!(encode_chs((1023, 238, 63)), [0xee, 0xff, 0xff]);
+        assert_eq!(encode_chs((1023, 255, 63)), [0xff, 0xff, 0xff]);
+        assert_eq!(encode_chs((4, 20, 16)), [0x14, 0x10, 0x04]);
+    }
+
+    #[test]
+    fn test_chs_to_lba() {
+        assert_eq!(chs_to_lba((32, 0, 1)), 32256);
+        assert_eq!(chs_to_lba((31, 15, 63)), 32255);
+        assert_eq!(chs_to_lba((2, 0, 1)), 2016);
+        assert_eq!(chs_to_lba((1, 1, 63)), 1133);
+    }
+
+    #[test]
+    fn test_lba_to_chs() {
+        assert_eq!(lba_to_chs(32256), (32, 0, 1));
+        assert_eq!(lba_to_chs(32255), (31, 15, 63));
+        assert_eq!(lba_to_chs(2016), (2, 0, 1));
+        assert_eq!(lba_to_chs(1133), (1, 1, 63));
     }
 }
