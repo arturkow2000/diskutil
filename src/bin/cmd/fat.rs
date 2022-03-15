@@ -40,9 +40,6 @@ fn parse_fat_type(x: &str) -> result::Result<fatfs::FatType, &'static str> {
 #[derive(Parser)]
 #[clap(about = "Access FAT filesystem")]
 pub struct Command {
-    #[clap(flatten)]
-    disk: CommonDiskOptions,
-
     #[clap(long, name = "sector_size", parse(try_from_str = parse_sector_size), default_value = "512", long_help = "Set sector size for RAW disks, for other disk formats this is ignored.")]
     pub sector_size: usize,
 
